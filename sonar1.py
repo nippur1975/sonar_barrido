@@ -1526,8 +1526,10 @@ while not hecho:
     
     sweep_increment_ppf = 0 # Pixels per frame
     if time_to_max_range_oneway_s > 0:
-        # Pixels per second for the sweep to reach the edge in time_to_max_range_oneway_s
-        sweep_pixels_per_second = display_radius_pixels / time_to_max_range_oneway_s
+        # To make the sweep twice as slow, we make it take twice as long.
+        effective_time_for_sweep_s = time_to_max_range_oneway_s * 2
+        # Pixels per second for the sweep to reach the edge in effective_time_for_sweep_s
+        sweep_pixels_per_second = display_radius_pixels / effective_time_for_sweep_s
         sweep_increment_ppf = sweep_pixels_per_second / FPS
     
     # --- Sonar Sweep Animation Logic ---
@@ -1827,10 +1829,10 @@ while not hecho:
 
     # --- Draw Sonar Sweep ---
     if current_sweep_radius_pixels > 0 and current_sweep_radius_pixels <= display_radius_pixels:
-        # Draw a semi-transparent green circle for the sweep
+        # Draw a semi-transparent blue circle for the sweep
         # To make it semi-transparent, we create a temporary surface
         sweep_surface = pygame.Surface((display_radius_pixels * 2, display_radius_pixels * 2), pygame.SRCALPHA)
-        pygame.draw.circle(sweep_surface, (*VERDE, 100), 
+        pygame.draw.circle(sweep_surface, (*AZUL, 100),  # Reverted alpha to 100
                            (display_radius_pixels, display_radius_pixels), # Center of the temp surface
                            int(current_sweep_radius_pixels), 2) # Thickness 2
         pantalla.blit(sweep_surface, (center_x - display_radius_pixels, center_y - display_radius_pixels))
