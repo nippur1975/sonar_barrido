@@ -330,10 +330,24 @@ GRIS_MUY_CLARO = (220, 220, 220)
 PI = 3.141592653
 
 # Establecemos la altura y largo de la pantalla
-dimensiones = [910, 635]
-screen = pygame.display.set_mode((900, 630))
+# Intentar obtener el tamaño del escritorio para una ventana grande inicial,
+# o usar un tamaño predeterminado si falla.
+try:
+    display_info = pygame.display.Info()
+    initial_width = display_info.current_w
+    initial_height = display_info.current_h
+    # Opcional: Usar un porcentaje del tamaño del escritorio o un máximo
+    # initial_width = int(display_info.current_w * 0.9)
+    # initial_height = int(display_info.current_h * 0.9)
+except pygame.error:
+    initial_width = 1024 # Fallback
+    initial_height = 768  # Fallback
+
+dimensiones = [initial_width, initial_height]
+# Usar pygame.RESIZABLE para permitir que el usuario cambie el tamaño de la ventana
+screen = pygame.display.set_mode(dimensiones, pygame.RESIZABLE)
 pygame.display.set_caption("SIMULADOR SONAR")
-pantalla = pygame.display.set_mode(dimensiones)
+pantalla = screen # Restaurar la asignación de pantalla para que sea la misma superficie que screen
 
 # Define Range Presets and Current Range State Variable (Moved up)
 RANGE_PRESETS_METERS = [100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 1200, 1600]
@@ -496,12 +510,17 @@ SPEED_OF_SOUND_MPS = 1500  # Speed of sound in water in meters/second
 current_sweep_radius_pixels = 0
 # --- End Sonar Sweep Variables ---
 
+# --- Audio Volume ---
+current_volume = 1.0 # Max volume (0.0 to 1.0 for pygame)
+# --- End Audio Volume ---
+
 # --- Load Sonar Sound ---
 try:
     # Construct path to sound file relative to the script's location
     script_dir = os.path.dirname(os.path.abspath(__file__))
     sound_file_path = os.path.join(script_dir, "eco.mp3")
     sonar_ping_sound = pygame.mixer.Sound(sound_file_path)
+    sonar_ping_sound.set_volume(current_volume) # Establecer volumen inicial
 except pygame.error as e:
     print(f"Advertencia: No se pudo cargar el archivo de sonido '{sound_file_path if 'sound_file_path' in locals() else 'eco.mp3'}': {e}")
     print("El programa continuará sin sonido de barrido.")
@@ -523,7 +542,13 @@ reloj = pygame.time.Clock()
 # Display box dimensions
 # display_box_1_dims = [620, 10, 280, 340]  # Combined VEL/RUMBO/LATLON - Replaced
 # combined_data_box_dims = [620, 360, 280, 350] # Increased height from 270 to 350 - Replaced
-unified_data_box_dims = [620, 10, 280, 700] # New unified box
+# unified_data_box_dims = [620, 10, 280, 700] # Old unified box for 910x635 screen
+# Para 1024x768, el sonar principal podría ser más grande.
+# Si el sonar es de 700x700 (antes 600x600), y empieza en (10,10)
+# El panel de datos podría empezar en x = 700 + 10 + 10 = 720.
+# Ancho del panel de datos: 1024 - 720 - 10 (margen derecho) = 294.
+# Altura del panel de datos: 768 - 10 (margen superior) - 10 (margen inferior) = 748.
+unified_data_box_dims = [720, 10, 294, 748] # New unified box for 1024x768
 
 # Tilt Control Variables
 current_tilt_angle = 0
@@ -577,7 +602,8 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
     global current_range_index, current_tilt_angle, show_tilt_temporarily, tilt_display_timer, \
            show_range_temporarily, range_display_timer, \
            current_gain, show_gain_temporarily, gain_display_timer, target_markers, \
-           current_ship_lat_deg, current_ship_lon_deg, current_ship_heading, current_unit
+           current_ship_lat_deg, current_ship_lon_deg, current_ship_heading, current_unit, \
+           current_volume, menu_options_values, sonar_ping_sound
     # Constants like RANGE_PRESETS_METERS, MIN_TILT, MAX_TILT, etc., are accessible globally
 
     if event_key == pygame.K_y:
@@ -1024,8 +1050,16 @@ def handle_menu_dropdown_click(event_pos, option_key, base_value_box_rect,
         for i, item_rect in enumerate(item_rect_list):
             if item_rect.collidepoint(event_pos):
                 if i < len(item_value_list): # Ensure index is valid
-                    menu_options_values[option_key] = item_value_list[i] # Use actual value from list
+                    new_value = item_value_list[i]
+                    menu_options_values[option_key] = new_value
                     menu_dropdown_states[option_key] = False # Close this dropdown
+
+                    if option_key == "volumen_audio":
+                        global current_volume, sonar_ping_sound
+                        current_volume = new_value / 10.0
+                        if sonar_ping_sound:
+                            sonar_ping_sound.set_volume(current_volume)
+                        print(f"Volumen cambiado desde menú a: {new_value}") # Debug
                     return True # Click was processed
         
         # If click was in the dropdown's general area but not on an item,
@@ -1723,11 +1757,57 @@ global_menu_panel_rect = None # Initialize here, before the main loop
 
 while not hecho:
  
-    circle_origin_x = 10 # from dimensiones_caja[0]
-    circle_origin_y = 10 # from dimensiones_caja[1]
-    circle_width = 600   # from dimensiones_caja[2]
-    circle_height = 600  # from dimensiones_caja[3]
+    # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
+    # Primero, definir el ancho del panel de datos. Podría ser fijo o un porcentaje.
+    # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
     
+    # 1. Panel de Datos (anclado a la derecha)
+    data_panel_margin_right = 10
+    data_panel_margin_top = 10
+    data_panel_margin_bottom = 10
+    
+    # Ancho del panel de datos: un porcentaje de la pantalla o un valor fijo/limitado.
+    # Queremos que sea lo suficientemente ancho para el contenido pero no demasiado.
+    # Usaremos un valor similar al anterior (ej. 280-350px) si es posible.
+    data_panel_width = min(max(int(dimensiones[0] * 0.28), 280), 320) 
+    # Asegurar que el panel no sea más ancho que la pantalla menos márgenes para el sonar.
+    data_panel_width = min(data_panel_width, dimensiones[0] - 200 - 30) # (min sonar width + margins)
+
+
+    data_panel_height = dimensiones[1] - data_panel_margin_top - data_panel_margin_bottom
+    data_panel_x = dimensiones[0] - data_panel_width - data_panel_margin_right
+    data_panel_y = data_panel_margin_top
+    
+    # Actualizar la variable global unified_data_box_dims
+    unified_data_box_dims[0] = data_panel_x
+    unified_data_box_dims[1] = data_panel_y
+    unified_data_box_dims[2] = data_panel_width
+    unified_data_box_dims[3] = data_panel_height
+
+    # 2. Círculo del Sonar (ocupa el espacio a la izquierda del panel de datos)
+    sonar_margin_left = 10
+    sonar_margin_top = 10
+    sonar_margin_bottom = 10
+    sonar_margin_right_to_panel = 10
+
+    available_width_for_sonar = data_panel_x - sonar_margin_left - sonar_margin_right_to_panel
+    available_height_for_sonar = dimensiones[1] - sonar_margin_top - sonar_margin_bottom
+    
+    sonar_diameter = min(available_width_for_sonar, available_height_for_sonar)
+    sonar_diameter = max(sonar_diameter, 200) # Diámetro mínimo usable
+
+    circle_origin_x = sonar_margin_left
+    circle_origin_y = sonar_margin_top
+    circle_width = sonar_diameter
+    circle_height = sonar_diameter
+        
+    # Actualizar unified_data_box_dims globalmente si es necesario, o pasar como parámetros.
+    # Por ahora, lo calcularemos aquí y lo usaremos directamente en las secciones de dibujo.
+    # Si alguna función externa lo necesita, habría que considerar cómo pasarlo.
+    # Para este ejemplo, asumimos que las funciones de dibujo pueden acceder a estas variables locales
+    # o que `unified_data_box_dims` se actualiza aquí para ser usado más abajo.
+    # La actualización de la variable global `unified_data_box_dims` ya se hizo arriba.
+
     circle_center_x = circle_origin_x + circle_width // 2
     circle_center_y = circle_origin_y + circle_height // 2
     display_radius_pixels = circle_width // 2
@@ -1875,6 +1955,15 @@ while not hecho:
     for evento in pygame.event.get():  # El usuario hizo algo
         if evento.type == pygame.QUIT: # Si el usuario hace click sobre cerrar
             hecho = True               # Marca que ya lo hemos hecho, de forma que abandonamos el bucle
+        elif evento.type == pygame.VIDEORESIZE:
+            dimensiones[0] = evento.w
+            dimensiones[1] = evento.h
+            # screen = pygame.display.set_mode(dimensiones, pygame.RESIZABLE) # Re-crear screen
+            # No es estrictamente necesario re-crear `screen` aquí si solo actualizamos `dimensiones`
+            # y todos los cálculos de UI en el bucle principal dependen de `dimensiones`.
+            # Pygame maneja internamente la redimensión de la superficie devuelta por set_mode con RESIZABLE.
+            # Lo importante es que nuestros cálculos usen las nuevas `dimensiones`.
+            print(f"Ventana redimensionada a: {dimensiones}") # Debug
         
         if evento.type == pygame.KEYDOWN:
             # Ensure current_range_index is valid before accessing presets for S_max
@@ -2167,7 +2256,8 @@ while not hecho:
     pantalla.fill(AZUL)
 
 
-    dimensiones_caja = [10, 10, 600, 600] # This is the existing definition
+    # Usar las variables calculadas dinámicamente para el círculo del sonar
+    dimensiones_caja = [circle_origin_x, circle_origin_y, circle_width, circle_height]
     # Dibujamos el borde de un círculo para 'barrerlo'
     pygame.draw.ellipse(pantalla, BLANCO, dimensiones_caja, 2)
 
@@ -2209,37 +2299,51 @@ while not hecho:
 
     # --- End Display Calculated Target Data ---
 
-    # --- Draw Sonar Rose Unit Text (POSITIONS DEPEND ON TARGET DATA VISIBILITY) ---
+    # --- Draw Sonar Rose Unit Text (Bottom-Right of Sonar Rose, above target data if visible) ---
     if active_sonar_rose_unit_surface:
         sonar_rose_unit_rect = active_sonar_rose_unit_surface.get_rect()
         
-        # Default position: bottom-right of sonar circle, very close to the edge
-        default_bottom_y = dimensiones_caja[1] + dimensiones_caja[3] - 2 + 10 # Margen inferior de 2px + 10px
-        target_data_is_visible = len(target_markers) >= 2
+        # Position near the bottom-right of the sonar circle (dimensiones_caja defines sonar circle)
+        # Default X: right edge of sonar circle, minus some padding
+        base_x_unit_text = dimensiones_caja[0] + dimensiones_caja[2] - 10 # 10px from right edge of sonar
         
-        base_x_right_aligned = dimensiones_caja[0] + dimensiones_caja[2] - 10 # Original right alignment point
-        new_x_for_right = base_x_right_aligned - 100 # Move 100px to the left
+        # Default Y: bottom edge of sonar circle, minus some padding
+        base_y_unit_text = dimensiones_caja[1] + dimensiones_caja[3] - 5 # 5px from bottom edge of sonar
+        
+        sonar_rose_unit_rect.bottomright = (base_x_unit_text, base_y_unit_text)
 
-        if target_data_is_visible and 'td_dist_t1_t2_rect' in locals() and td_dist_t1_t2_rect is not None:
-            # Position it above the target data block
-            new_bottom_y = td_dist_t1_t2_rect.top - 5 + 10 # 5px margin above target data + 10px
-            sonar_rose_unit_rect.bottomright = (new_x_for_right, new_bottom_y)
-        else:
-            # Standard bottom right (but shifted left) if target data is not visible
-            sonar_rose_unit_rect.bottomright = (new_x_for_right, default_bottom_y)
+        # If target data is visible and its rect (td_dist_t1_t2_rect) is defined,
+        # position unit text above the target data block.
+        # td_dist_t1_t2_rect is the rect of the first line of the target data block.
+        if len(target_markers) >= 2 and 'td_dist_t1_t2_rect' in locals() and td_dist_t1_t2_rect is not None:
+            # Place it above the td_dist_t1_t2_rect (which is the first line of target data)
+            # Align its right with the right of td_dist_t1_t2_rect or slightly offset if needed.
+            # For simplicity, let's align with the right edge of sonar circle still, but adjust Y.
+            sonar_rose_unit_rect.right = base_x_unit_text # Keep X alignment consistent
+            sonar_rose_unit_rect.bottom = td_dist_t1_t2_rect.top - 3 # 3px margin above target data
             
+        # Final check to ensure it's within sonar circle bounds (approx)
+        if sonar_rose_unit_rect.right > dimensiones_caja[0] + dimensiones_caja[2] - 5:
+             sonar_rose_unit_rect.right = dimensiones_caja[0] + dimensiones_caja[2] - 5
+        if sonar_rose_unit_rect.bottom > dimensiones_caja[1] + dimensiones_caja[3] - 5:
+             sonar_rose_unit_rect.bottom = dimensiones_caja[1] + dimensiones_caja[3] - 5
+        if sonar_rose_unit_rect.left < dimensiones_caja[0] + 5:
+             sonar_rose_unit_rect.left = dimensiones_caja[0] + 5
+        if sonar_rose_unit_rect.top < dimensiones_caja[1] + 5:
+             sonar_rose_unit_rect.top = dimensiones_caja[1] + 5
+
         pantalla.blit(active_sonar_rose_unit_surface, sonar_rose_unit_rect)
     # --- End Sonar Rose Unit Text ---
 
     # Display current heading at the top of the sonar circle
-    heading_text_str = f"{int(current_ship_heading)}°" # Display as integer
-    heading_text_surface = font_very_large.render(heading_text_str, True, BLANCO) # Using font_very_large (size 48)
+    heading_text_str = f"{int(current_ship_heading)}°" 
+    heading_text_surface = font_very_large.render(heading_text_str, True, BLANCO) 
     heading_text_rect = heading_text_surface.get_rect()
-    heading_text_rect.centerx = center_x
-    heading_text_rect.top = dimensiones_caja[1] + 5 # Adjusted padding to 5px due to larger font
+    heading_text_rect.centerx = center_x # center_x is circle_center_x
+    heading_text_rect.top = circle_origin_y + 5 
     pantalla.blit(heading_text_surface, heading_text_rect)
 
-    # Unified data box on the right
+    # Unified data box on the right (already adjusted dimensions - unified_data_box_dims)
     pygame.draw.rect(pantalla, NEGRO, unified_data_box_dims)
     pygame.draw.rect(pantalla, VERDE, unified_data_box_dims, 2)
 
@@ -2427,15 +2531,18 @@ while not hecho:
         pantalla.blit(button_puerto_text_surface, text_blit_rect_puerto)
     
     # --- Draw "MENÚ" Button ---
-    # Positioned in the top-right corner of the screen, for example.
-    # This is outside the unified_data_box_dims, directly on the main screen.
+    # Positioned in the top-right corner of the screen.
     menu_button_padding_x = 10
-    menu_button_padding_y = 5 # Padding inside the button for text
+    menu_button_padding_y = 5 
     
     button_menu_rect.width = button_menu_text_surface.get_width() + (2 * menu_button_padding_x)
     button_menu_rect.height = button_menu_text_surface.get_height() + (2 * menu_button_padding_y)
-    button_menu_rect.right = dimensiones[0] - 10 # 10px from the right edge of the screen
-    button_menu_rect.top = 10 # 10px from the top edge of the screen
+    # Asegurar que el botón de menú esté a la derecha del panel de datos si hay espacio,
+    # o en el borde de la pantalla si el panel de datos es muy ancho.
+    button_menu_rect.right = unified_data_box_dims[0] - 10 # A la izquierda del panel de datos
+    if button_menu_rect.left < circle_origin_x + circle_width + 10: # Si invade el área del sonar
+        button_menu_rect.right = dimensiones[0] - 10 # Pegado al borde derecho de la pantalla
+    button_menu_rect.top = 10
 
     # Draw MENÚ button only if no other popups are obscuring its general area
     # (This simple check might need refinement if popups overlap precisely)
@@ -2461,32 +2568,39 @@ while not hecho:
 
     # --- Display Current Range ---
     range_text_str = f"R {current_range_val_from_list}{active_unit_suffix}"
-    range_surface = font_data_medium.render(range_text_str, True, BLANCO) # Use 36px font
+    range_surface = font_data_medium.render(range_text_str, True, BLANCO)
     range_rect = range_surface.get_rect()
-    range_rect.right = unified_data_box_dims[0] - 10 
-    range_rect.top = 10  
+    # Posicionar a la izquierda del círculo del sonar, si hay espacio, o encima del panel de datos.
+    range_rect.right = circle_origin_x + circle_width + unified_data_box_dims[0] - (circle_origin_x + circle_width) - 10 # Margen de 10px a la izquierda del panel de datos
+    # Asegurar que no se superponga con el botón de menú si este último está a la izquierda del panel
+    if 'button_menu_rect' in locals() and button_menu_rect.left < unified_data_box_dims[0]:
+        if range_rect.right > button_menu_rect.left -5:
+            range_rect.right = button_menu_rect.left - 5
+    if range_rect.left < circle_origin_x + circle_width + 5: # Si no hay espacio, moverlo
+        range_rect.left = circle_origin_x + circle_width + 5
+    range_rect.top = 10
     pantalla.blit(range_surface, range_rect)
     # --- End Display Current Range ---
 
     # --- Display Current Tilt (Top Right) ---
     tilt_text_str = f"T {current_tilt_angle}°"
-    tilt_surface = font_data_medium.render(tilt_text_str, True, BLANCO) # Use 36px font
+    tilt_surface = font_data_medium.render(tilt_text_str, True, BLANCO)
     tilt_rect = tilt_surface.get_rect()
-    tilt_rect.right = unified_data_box_dims[0] - 10  
-    tilt_rect.top = range_rect.bottom + 5  
+    tilt_rect.right = range_rect.right # Alinear con el display de Rango
+    tilt_rect.top = range_rect.bottom + 5
     pantalla.blit(tilt_surface, tilt_rect)
     # --- End Display Current Tilt ---
 
     # --- Display Current Gain (Top Right) ---
     gain_text_str = f"G {current_gain:.1f}"
-    gain_surface = font_data_medium.render(gain_text_str, True, BLANCO) # Use 36px font
+    gain_surface = font_data_medium.render(gain_text_str, True, BLANCO)
     gain_rect = gain_surface.get_rect()
-    gain_rect.right = unified_data_box_dims[0] - 10 
-    gain_rect.top = tilt_rect.bottom + 15 
+    gain_rect.right = range_rect.right # Alinear con el display de Rango
+    gain_rect.top = tilt_rect.bottom + 15
     pantalla.blit(gain_surface, gain_rect)
     # --- End Display Current Gain ---
 
-    # --- Display Calculated Cursor Data (Top-Left) ---
+    # --- Display Calculated Cursor Data (Top-Left, dentro del círculo del sonar si es posible) ---
     unit_suffix_for_display = sonar_rose_unit_text_map[current_unit] 
     
     line1_text = f"H: {ui_state['cursor_H_proj_display']}{unit_suffix_for_display}"
@@ -2502,64 +2616,66 @@ while not hecho:
         ("B", f" {ui_state['cursor_bearing_display']}°", "")
     ]
 
-    current_cursor_y_offset = 10
-    label_value_spacing = 2 # Space between label and value
+    current_cursor_y_offset = circle_origin_y + 10 # Start inside the sonar circle
+    label_value_spacing = 2 
+    cursor_info_left_margin = circle_origin_x + 10
 
     for label_str, value_str, label_suffix_str in cursor_info_lines:
         label_full_str = label_str + label_suffix_str
         
-        # Use font_large for all labels except "B"
         current_label_font = font_large
         if label_str == "B":
-            current_label_font = font # "B" label uses smaller font
+            current_label_font = font 
             
         label_surf = current_label_font.render(label_full_str, True, BLANCO)
-        value_surf = font.render(value_str, True, BLANCO) # Value uses smaller font
+        value_surf = font.render(value_str, True, BLANCO) 
 
-        label_rect = label_surf.get_rect(topleft=(10, current_cursor_y_offset))
+        label_rect = label_surf.get_rect(topleft=(cursor_info_left_margin, current_cursor_y_offset))
         value_rect = value_surf.get_rect(left=label_rect.right + label_value_spacing, centery=label_rect.centery)
         
-        pantalla.blit(label_surf, label_rect)
-        pantalla.blit(value_surf, value_rect)
+        # Ensure it doesn't go out of the sonar circle bounds (approx)
+        if value_rect.right < circle_origin_x + circle_width - 10 and label_rect.bottom < circle_origin_y + circle_height -10:
+            pantalla.blit(label_surf, label_rect)
+            pantalla.blit(value_surf, value_rect)
         
-        # Update Y offset based on the height of the larger font (font_large for label)
         current_cursor_y_offset = label_rect.bottom + 3
     # --- End Display Calculated Cursor Data ---
 
-    # --- Display Calculated Target Data (Bottom-Right of Sonar Rose) ---
-    # Position this below the R/T/G display or near/below combined_data_box_dims
-    # For now, let's try to place it to the right of the sonar circle, below the R/T/G info.
-    # Starting Y position: below the Gain display.
-    # start_y_target_data = gain_rect.bottom + 10 
-    # X position: aligned with R/T/G text (right edge of text)
-    # We want the text to start more to the left, so use `range_rect.left` as a reference for `topleft`
-    # start_x_target_data = range_rect.left 
-
-    large_symbol_font = font_large # Font for special symbols (⬌, ⮕, ...)
-    label_font = font          # Font for literal labels (S, C) and all values/units
+    # --- Display Calculated Target Data (Bottom-Right inside Sonar Rose) ---
+    large_symbol_font = font_large 
+    label_font = font          
     
     if len(target_markers) >= 2:
-        # Determine line height based on the potentially larger symbol font for consistent spacing
         effective_line_height = large_symbol_font.get_linesize() 
         
-        margin_bottom = 2 # Reducido para mover más abajo
-        margin_right = 15 
+        margin_bottom_sonar_circle = 10 
+        margin_right_sonar_circle = 10
         symbol_value_spacing = 2
 
-        # Data: (symbol_string, value_string, is_special_symbol_flag)
         target_data_lines_info = [
             ("⬌", f" {ui_state['target_dist_t1_t2']}", True),
             ("⮕", f" {ui_state['target_dist_center_t2']}", True),
             ("⭣", f" {ui_state['target_depth_t2']}", True),
-            ("S", f" {ui_state['target_speed_t1_t2']}", False), # S is a normal label
-            ("C", f" {ui_state['target_course_t1_t2']}", False)  # C is a normal label
+            ("S", f" {ui_state['target_speed_t1_t2']}", False), 
+            ("C", f" {ui_state['target_course_t1_t2']}", False)
         ]
 
-        total_text_height = 5 * effective_line_height + 4 * 3 
-        current_y_offset_target_data = (dimensiones_caja[1] + dimensiones_caja[3]) - total_text_height - margin_bottom + 80 # Desplazado 40px + 30px + 10px más abajo
+        # Calculate total height to position the block from the bottom of the sonar circle
+        num_lines_target_data = len(target_data_lines_info)
+        # Approximate height: use label_font height as it's likely the smallest defining factor per line after symbols
+        # This is a simplification; a more robust way sums actual rendered heights.
+        # For now, using effective_line_height which is based on the larger font (large_symbol_font)
+        # to ensure enough space if symbols are tall.
+        total_text_block_height = (num_lines_target_data * effective_line_height) + \
+                                  ((num_lines_target_data - 1) * 3 if num_lines_target_data > 0 else 0)
+
+
+        # Start Y for the block, from the bottom of the sonar circle
+        start_y_for_target_block = (circle_origin_y + circle_height) - total_text_block_height - margin_bottom_sonar_circle
         
+        current_y_offset_target_data = start_y_for_target_block # Initialize y_offset for the first line
+
         max_line_width = 0
-        # Pre-render and calculate widths to find max_line_width for alignment
         rendered_lines = []
         for label_str, value_str, is_special in target_data_lines_info:
             font_for_label = large_symbol_font if is_special else label_font
@@ -2570,39 +2686,45 @@ while not hecho:
                 max_line_width = line_width
             rendered_lines.append({'label_surf': label_surf, 'value_surf': value_surf, 'is_special': is_special})
 
-        start_x_for_block = (dimensiones_caja[0] + dimensiones_caja[2]) - max_line_width - margin_right
+        # Start X for the block, from the right edge of the sonar circle
+        start_x_for_target_block = (circle_origin_x + circle_width) - max_line_width - margin_right_sonar_circle
 
-        for i, line_info in enumerate(rendered_lines): # Use enumerate to get index
+
+        for i, line_info in enumerate(rendered_lines): 
             label_surf = line_info['label_surf']
             value_surf = line_info['value_surf']
             
             # Position label part of the line
-            # The entire line (label + value) should be right-aligned based on max_line_width.
-            # So, calculate the starting X for this specific line to achieve right alignment of the combined surface.
             current_line_total_width = label_surf.get_width() + symbol_value_spacing + value_surf.get_width()
-            current_start_x = start_x_for_block + (max_line_width - current_line_total_width)
+            current_start_x_for_line = start_x_for_target_block + (max_line_width - current_line_total_width) # Right align this line within the block
 
-            y_pos_for_this_line = current_y_offset_target_data # Use the correct y_offset variable
-            if i == 0: # Check if it's the first line using index
-                y_pos_for_this_line += 10 # Store td_dist_t1_t2_rect for Sonar Rose Unit Text positioning
-
-            label_rect = label_surf.get_rect(topleft=(current_start_x, y_pos_for_this_line))
-            # Align centery of value to centery of its label for this line
-            value_rect = value_surf.get_rect(left=label_rect.right + symbol_value_spacing, 
-                                             centery=label_rect.centery) 
-                                             # Using label_rect.centery assumes label_font is generally not shorter than value_font if is_special is false.
-                                             # If is_special is true, large_symbol_font dictates the line's vertical center for the value.
+            y_pos_for_this_line = current_y_offset_target_data
             
-            if i == 0: # Store the rect for the first line of target data
-                 td_dist_t1_t2_rect = pygame.Rect(label_rect.left, label_rect.top, current_line_total_width, label_surf.get_height())
+            # Store rect for the first line (td_dist_t1_t2_rect) if needed elsewhere (e.g. for Sonar Rose Unit Text positioning)
+            # This part of the logic for td_dist_t1_t2_rect might need re-evaluation if its original purpose was
+            # for positioning elements outside the sonar circle relative to this block.
+            # Since this block is now *inside* the sonar circle, its absolute screen rect might not be as useful
+            # for those external elements.
+            # For now, we'll keep the calculation in case it's used for relative internal positioning or debugging.
+            if i == 0: 
+                 td_dist_t1_t2_rect = pygame.Rect(
+                     current_start_x_for_line, 
+                     y_pos_for_this_line, 
+                     current_line_total_width, 
+                     label_surf.get_height() # Or effective_line_height if all lines should have same conceptual height for this rect
+                 )
 
 
-            pantalla.blit(label_surf, label_rect)
-            pantalla.blit(value_surf, value_rect)
+            label_rect = label_surf.get_rect(topleft=(current_start_x_for_line, y_pos_for_this_line))
+            value_rect = value_surf.get_rect(left=label_rect.right + symbol_value_spacing, centery=label_rect.centery) 
             
-            # Increment current_y_offset for the *next* line's base position
-            # This ensures consistent spacing based on the height of the current line's label
-            current_y_offset_target_data += label_surf.get_height() 
+            # Ensure it doesn't go out of the sonar circle bounds (approx)
+            if value_rect.right < circle_origin_x + circle_width - margin_right_sonar_circle + 5 and \
+               label_rect.bottom < circle_origin_y + circle_height - margin_bottom_sonar_circle + 5 :
+                 pantalla.blit(label_surf, label_rect)
+                 pantalla.blit(value_surf, value_rect)
+            
+            current_y_offset_target_data += effective_line_height + 3 # Use consistent line height for spacing
     # --- End Display Calculated Target Data ---
 
 
@@ -2782,11 +2904,14 @@ while not hecho:
     # --- Temporary Tilt Display on Sonar Circle (Proa) ---
     if show_tilt_temporarily:
         temp_tilt_text_str = f"T {current_tilt_angle}°" 
-        temp_tilt_surface = font_data_medium.render(temp_tilt_text_str, True, BLANCO) # Use 36px font 
+        temp_tilt_surface = font_data_medium.render(temp_tilt_text_str, True, BLANCO) 
         temp_tilt_rect = temp_tilt_surface.get_rect()
-        temp_tilt_rect.centerx = center_x 
+        temp_tilt_rect.centerx = circle_center_x # Use circle_center_x consistently
         temp_tilt_rect.top = heading_text_rect.bottom + 5 
-        pantalla.blit(temp_tilt_surface, temp_tilt_rect)
+        
+        # Ensure it's within the sonar circle
+        if temp_tilt_rect.bottom < circle_origin_y + circle_height - 5:
+            pantalla.blit(temp_tilt_surface, temp_tilt_rect)
 
         tilt_display_timer -= 1
         if tilt_display_timer <= 0:
@@ -2797,17 +2922,17 @@ while not hecho:
     if show_range_temporarily:
         current_range_val_for_temp_display = range_presets_map[current_unit][current_range_index]
         temp_range_text_str = f"R {current_range_val_for_temp_display}{range_display_suffix_map[current_unit]}"
-        temp_range_surface = font_data_medium.render(temp_range_text_str, True, BLANCO) # Use 36px font
+        temp_range_surface = font_data_medium.render(temp_range_text_str, True, BLANCO)
         temp_range_rect = temp_range_surface.get_rect()
-        temp_range_rect.centerx = center_x
+        temp_range_rect.centerx = circle_center_x # Use circle_center_x
 
         base_y_position_temp_range = heading_text_rect.bottom
-        # Ensure temp_tilt_rect is defined from a previous step if show_tilt_temporarily is true
-        if show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None:
+        if show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None and temp_tilt_rect.bottom < circle_origin_y + circle_height - 5 :
              base_y_position_temp_range = temp_tilt_rect.bottom 
         temp_range_rect.top = base_y_position_temp_range + 5
         
-        pantalla.blit(temp_range_surface, temp_range_rect)
+        if temp_range_rect.bottom < circle_origin_y + circle_height - 5:
+            pantalla.blit(temp_range_surface, temp_range_rect)
 
         range_display_timer -= 1
         if range_display_timer <= 0:
@@ -2817,26 +2942,24 @@ while not hecho:
     # --- Temporary Gain Display on Sonar Circle (Proa) ---
     if show_gain_temporarily:
         temp_gain_text_str = f"G {current_gain:.1f}"
-        temp_gain_surface = font_data_medium.render(temp_gain_text_str, True, BLANCO) # Use 36px font
+        temp_gain_surface = font_data_medium.render(temp_gain_text_str, True, BLANCO)
         temp_gain_rect = temp_gain_surface.get_rect()
-        temp_gain_rect.centerx = center_x
+        temp_gain_rect.centerx = circle_center_x # Use circle_center_x
 
         base_y_position_temp_gain = heading_text_rect.bottom
-        if show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None: 
+        # Check if Tilt is shown and displayed
+        if show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None and temp_tilt_rect.bottom < circle_origin_y + circle_height - 5 :
             base_y_position_temp_gain = temp_tilt_rect.bottom
-        # Ensure temp_range_rect is defined if show_range_temporarily is true
-        if show_range_temporarily and 'temp_range_rect' in locals() and temp_range_rect is not None:
-            # Check if range is already positioned below tilt, if both are shown
-            if not (show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None and temp_range_rect.top > temp_tilt_rect.bottom):
-                 base_y_position_temp_gain = temp_range_rect.bottom
-            elif (show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None and temp_range_rect.top <= temp_tilt_rect.bottom): # Range is above or same level as tilt
-                 pass # base_y_position_temp_gain should already be temp_tilt_rect.bottom or heading_text_rect.bottom
-            else: # Only range is shown (and not tilt)
-                 base_y_position_temp_gain = temp_range_rect.bottom
+        # Check if Range is shown (and was displayed) and is lower than Tilt (or Tilt not shown)
+        if show_range_temporarily and 'temp_range_rect' in locals() and temp_range_rect is not None and temp_range_rect.bottom < circle_origin_y + circle_height - 5:
+            if not (show_tilt_temporarily and 'temp_tilt_rect' in locals() and temp_tilt_rect is not None and temp_tilt_rect.bottom < circle_origin_y + circle_height - 5 and temp_range_rect.top <= temp_tilt_rect.bottom): # if range is not above or at same level as a displayed tilt
+                 base_y_position_temp_gain = max(base_y_position_temp_gain, temp_range_rect.bottom)
+
 
         temp_gain_rect.top = base_y_position_temp_gain + 5
         
-        pantalla.blit(temp_gain_surface, temp_gain_rect)
+        if temp_gain_rect.bottom < circle_origin_y + circle_height - 5:
+            pantalla.blit(temp_gain_surface, temp_gain_rect)
 
         gain_display_timer -= 1
         if gain_display_timer <= 0:
@@ -3089,8 +3212,14 @@ while not hecho:
             ("square", "angulo_haz_hor", "ANGULO HAZ HOR:", ["ANCHO", "ESTRECHO"], "ROJO"),
             ("square", "angulo_haz_ver", "ANGULO HAZ VER:", ["ANCHO", "ESTRECHO"], "ROJO"),
             ("square", "color_menu", "COLOR:", [str(i) for i in range(1, 5)], "VERDE_CLARO"),
+            # BORRAR MARCAS items are action buttons, not value states here
+            ("dropdown", "nivel_alarma", "NIVEL ALARMA:", range(1,11), None), # Added back
+            ("square", "explor_auto", "EXPLOR AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # Added back
+            ("dropdown", "sector_explor", "SECTOR EXPLOR:", ["±10°", "±20°", "±30°", "±60°", "±90°", "±170°"], None), # Added back
+            ("square", "inclin_auto", "INCLIN AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # Added back
+            ("dropdown", "angulo_inclin", "ANGULO INCLIN:", ["±2-10°", "±2-20°", "±2-30°", "±2-40°", "±2-55°"], None), # Added back
             ("square", "transmision", "TRANSMISION:", ["ON", "OFF"], "VERDE_CLARO"),
-            ("dropdown", "volumen_audio", "VOLUMEN AUDIO:", range(1, 11), None),
+            ("dropdown", "volumen_audio", "VOLUMEN AUDIO:", range(0, 11), None), # Changed range to 0-10
         ]
         
         for item_config_type, _, _, _, _ in _all_menu_items_config:
@@ -3112,11 +3241,15 @@ while not hecho:
         calculated_panel_height = menu_panel_internal_padding_top + _content_total_h + menu_panel_internal_padding_bottom
         
         menu_panel_rect = pygame.Rect(
-            dimensiones[0] - menu_panel_width - menu_panel_margin_right,
+            dimensiones[0] - menu_panel_width - menu_panel_margin_right, # Right aligned
             menu_panel_margin_top,
             menu_panel_width,
-            max(calculated_panel_height, 50) # Ensure a minimum height
+            min(calculated_panel_height, dimensiones[1] - menu_panel_margin_top - 10) # Max height, 10px margin bottom
         )
+        # Ensure minimum height if calculated is too small or negative due to screen constraints
+        menu_panel_rect.height = max(menu_panel_rect.height, 50)
+
+
         
         pygame.draw.rect(pantalla, GRIS_MEDIO, menu_panel_rect) 
         pygame.draw.rect(pantalla, BLANCO, menu_panel_rect, 2)   
