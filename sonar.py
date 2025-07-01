@@ -317,15 +317,119 @@ def parse_hdg(sentence):
         print(f"Error parsing HDG sentence: {sentence} - {e}")
 
 # Definimos algunos colores
-NEGRO = (0, 0, 0)
-BLANCO = (255, 255, 255)
-VERDE = (0, 255, 0)
-ROJO = (255, 0, 0)
-AZUL = (0, 0, 255)
-CELESTE = (173, 216, 230) # Light Blue for sweep
-VERDE_CLARO = (144, 238, 144) # Light Green for some square selectors
-GRIS_MEDIO = (128, 128, 128)
-GRIS_MUY_CLARO = (220, 220, 220)
+# Estos se convertirán en los colores por defecto (esquema 3)
+DEFAULT_NEGRO = (0, 0, 0)
+DEFAULT_BLANCO = (255, 255, 255)
+DEFAULT_VERDE = (0, 255, 0)
+DEFAULT_ROJO = (255, 0, 0)
+DEFAULT_AZUL = (0, 0, 255) # Color de fondo principal para el esquema por defecto
+DEFAULT_CELESTE = (173, 216, 230) # Light Blue for sweep
+DEFAULT_VERDE_CLARO = (144, 238, 144) # Light Green for some square selectors
+DEFAULT_GRIS_MEDIO = (128, 128, 128)
+DEFAULT_GRIS_MUY_CLARO = (220, 220, 220)
+
+# --- Definiciones de Esquemas de Color ---
+color_schemes = {
+    1: { # Verde Militar
+        "BACKGROUND": (47, 79, 47),        # Verde oscuro (Dark Olive Green-ish)
+        "PRIMARY_TEXT": (188, 238, 104),   # Verde amarillento claro (tipo ámbar/verde fosforescente)
+        "ACCENT_ELEMENT": (107, 142, 35),  # Verde oliva
+        "SWEEP": (152, 251, 152),          # Verde pálido para el barrido
+        "TARGET_BASE": (188, 238, 104),
+        "TARGET_HOVER": (255, 100, 100),   # Rojo para hover (podría ser un ámbar más brillante también)
+        "COMPASS_ROSE": (188, 238, 104),
+        "DATA_PANEL_BG": (30, 60, 30),     # Un verde aún más oscuro para el panel
+        "DATA_PANEL_BORDER": (107, 142, 35),
+        "BUTTON_BG": (30, 60, 30),
+        "BUTTON_BORDER": (107, 142, 35),
+        "CURSOR_CROSS": (188, 238, 104),
+        "RANGE_RINGS": (107, 142, 35),     # Verde oliva para los anillos
+        "SHIP_TRACK": (152, 251, 152),     # Verde pálido para la estela
+        "CENTER_ICON": (188, 238, 104),
+        "MENU_ITEM_HIGHLIGHT": DEFAULT_VERDE_CLARO, # Mantener este por ahora o definir uno específico
+        "MENU_ITEM_RED_HIGHLIGHT": DEFAULT_ROJO, # Mantener este por ahora o definir uno específico
+    },
+    2: { # Verde Claro
+        "BACKGROUND": (144, 238, 144),     # Verde claro (LightGreen)
+        "PRIMARY_TEXT": (0, 100, 0),       # Verde oscuro para texto
+        "ACCENT_ELEMENT": (34, 139, 34),   # Verde bosque
+        "SWEEP": (60, 179, 113),           # Verde mar medio
+        "TARGET_BASE": (0, 100, 0),
+        "TARGET_HOVER": (255, 0, 0),       # Rojo estándar para hover
+        "COMPASS_ROSE": (0, 100, 0),
+        "DATA_PANEL_BG": (224, 255, 224),  # Verde muy pálido (Honeydew)
+        "DATA_PANEL_BORDER": (34, 139, 34),
+        "BUTTON_BG": (224, 255, 224),
+        "BUTTON_BORDER": (34, 139, 34),
+        "CURSOR_CROSS": (0, 100, 0),
+        "RANGE_RINGS": (34, 139, 34),      # Verde bosque para los anillos
+        "SHIP_TRACK": (60, 179, 113),      # Verde mar medio para la estela
+        "CENTER_ICON": (0, 100, 0),
+        "MENU_ITEM_HIGHLIGHT": DEFAULT_VERDE_CLARO,
+        "MENU_ITEM_RED_HIGHLIGHT": DEFAULT_ROJO,
+    },
+    3: { # Azul (Actual - Default)
+        "BACKGROUND": DEFAULT_AZUL,
+        "PRIMARY_TEXT": DEFAULT_BLANCO,
+        "ACCENT_ELEMENT": DEFAULT_VERDE,
+        "SWEEP": DEFAULT_CELESTE,
+        "TARGET_BASE": DEFAULT_BLANCO,
+        "TARGET_HOVER": DEFAULT_ROJO,
+        "COMPASS_ROSE": DEFAULT_BLANCO,
+        "DATA_PANEL_BG": DEFAULT_NEGRO,
+        "DATA_PANEL_BORDER": DEFAULT_VERDE,
+        "BUTTON_BG": DEFAULT_NEGRO,
+        "BUTTON_BORDER": DEFAULT_VERDE,
+        "CURSOR_CROSS": DEFAULT_BLANCO,
+        "RANGE_RINGS": DEFAULT_GRIS_MUY_CLARO,
+        "SHIP_TRACK": DEFAULT_GRIS_MUY_CLARO,
+        "CENTER_ICON": DEFAULT_BLANCO,
+        "MENU_ITEM_HIGHLIGHT": DEFAULT_VERDE_CLARO,
+        "MENU_ITEM_RED_HIGHLIGHT": DEFAULT_ROJO,
+    },
+    4: { # Azul Claro
+        "BACKGROUND": (173, 216, 230),     # Celeste (LightBlue)
+        "PRIMARY_TEXT": (0, 0, 128),       # Azul marino para texto
+        "ACCENT_ELEMENT": (70, 130, 180),  # Azul acero
+        "SWEEP": (135, 206, 250),          # Azul cielo claro
+        "TARGET_BASE": (0, 0, 128),
+        "TARGET_HOVER": (255, 0, 0),       # Rojo estándar
+        "COMPASS_ROSE": (0, 0, 128),
+        "DATA_PANEL_BG": (220, 240, 255),  # Azul muy pálido
+        "DATA_PANEL_BORDER": (70, 130, 180),
+        "BUTTON_BG": (220, 240, 255),
+        "BUTTON_BORDER": (70, 130, 180),
+        "CURSOR_CROSS": (0, 0, 128),
+        "RANGE_RINGS": (70, 130, 180),     # Azul acero para los anillos
+        "SHIP_TRACK": (135, 206, 250),     # Azul cielo claro para la estela
+        "CENTER_ICON": (0, 0, 128),
+        "MENU_ITEM_HIGHLIGHT": DEFAULT_VERDE_CLARO, # Podrían ser azules también
+        "MENU_ITEM_RED_HIGHLIGHT": DEFAULT_ROJO,
+    }
+}
+
+# Variable global para el esquema de color activo
+# Se inicializa con el esquema por defecto (3)
+# El valor de menu_options_values["color_menu"] (1-4) será el índice.
+active_color_scheme_idx = 3 # Default
+current_colors = color_schemes[active_color_scheme_idx]
+
+# Actualizar las variables de color globales para que apunten a las del esquema actual
+# Esto es para minimizar cambios extensos en el código existente que usa NEGRO, BLANCO, etc.
+# En su lugar, estas variables globales ahora obtendrán su valor del current_colors.
+# Sin embargo, es mejor reemplazar los usos directos de NEGRO, BLANCO, etc., con current_colors["KEY"].
+# Por ahora, mantenemos algunas globales para compatibilidad, pero idealmente se refactorizarían.
+
+NEGRO = DEFAULT_NEGRO # Usado para el fondo de botones de popup y texto en algunos casos.
+BLANCO = DEFAULT_BLANCO # Usado ampliamente para texto.
+VERDE = DEFAULT_VERDE   # Usado para bordes de panel, etc.
+ROJO = DEFAULT_ROJO     # Para hover de targets, etc.
+AZUL = DEFAULT_AZUL     # Para fondo principal.
+CELESTE = DEFAULT_CELESTE # Para barrido.
+VERDE_CLARO = DEFAULT_VERDE_CLARO # Para selectores cuadrados de menú.
+GRIS_MEDIO = DEFAULT_GRIS_MEDIO # Para fondo de popups.
+GRIS_MUY_CLARO = DEFAULT_GRIS_MUY_CLARO # Para anillos de rango.
+
 
 PI = 3.141592653
 
@@ -389,16 +493,18 @@ font_size_54 = pygame.font.Font(None, 54)
 font_menu_item = pygame.font.Font(None, 20) # New font for menu items
 
 # --- Button Definitions & Initial Surfaces (Now correctly placed after font and maps) ---
-button_unidades_text_surface = font.render("UNIDADES", True, BLANCO, NEGRO) # Text, AA, FgColor, BgColor for button
+# These surfaces will be re-rendered if colors change
+button_unidades_text_surface = None # Will be rendered in main loop or when colors change
 button_unidades_rect = pygame.Rect(0,0,0,0) # Placeholder, will be defined in main loop
-active_sonar_rose_unit_surface = font.render(sonar_rose_unit_text_map[current_unit], True, BLANCO) # Initial render
+active_sonar_rose_unit_surface = None # Will be rendered in main loop or when colors change
 show_unidades_popup = False # For controlling popup visibility
 
 # Pop-up UI elements (placeholders and pre-rendered text)
+# These surfaces will be re-rendered if colors change
 popup_main_rect = pygame.Rect(0,0,0,0) # For Unidades popup
-popup_metros_text_surface = font.render("METROS", True, BLANCO, NEGRO)
+popup_metros_text_surface = None # font.render("METROS", True, BLANCO, NEGRO)
 popup_metros_option_rect = pygame.Rect(0,0,0,0)
-popup_brazas_text_surface = font.render("BRAZAS", True, BLANCO, NEGRO)
+popup_brazas_text_surface = None # font.render("BRAZAS", True, BLANCO, NEGRO)
 popup_brazas_option_rect = pygame.Rect(0,0,0,0)
 
 # --- "Puerto" (COM Port Selection) Pop-up State and UI Variables ---
@@ -412,11 +518,12 @@ available_baud_rates_list = [4800, 9600, 19200, 38400, 57600, 115200]
 puerto_popup_message = "" # For status/error messages in the port pop-up
 
 # "Puerto" button (main screen)
-button_puerto_text_surface = font.render("PUERTO", True, BLANCO, NEGRO)
+# These surfaces will be re-rendered if colors change
+button_puerto_text_surface = None # font.render("PUERTO", True, BLANCO, NEGRO)
 button_puerto_rect = pygame.Rect(0,0,0,0) # Positioned in main loop
 
 # "Menú" button (main screen)
-button_menu_text_surface = font.render("MENÚ", True, BLANCO, NEGRO)
+button_menu_text_surface = None # font.render("MENÚ", True, BLANCO, NEGRO)
 button_menu_rect = pygame.Rect(0,0,0,0) # Positioned in main loop, likely top-right
 
 # "Puerto" Pop-up elements (rects will be defined dynamically when pop-up is shown)
@@ -428,12 +535,13 @@ puerto_popup_cancel_button_rect = pygame.Rect(0,0,0,0)
 puerto_popup_port_list_item_rects = [] # For clickable port options
 puerto_popup_baud_list_item_rects = [] # For clickable baud options
 
-# Pre-rendered text for "Puerto" pop-up (can be done once)
-puerto_popup_title_surf = font_large.render("Configurar Puerto", True, BLANCO)
-puerto_popup_com_label_surf = font.render("Puerto COM:", True, BLANCO)
-puerto_popup_baud_label_surf = font.render("Baudios:", True, BLANCO)
-puerto_popup_apply_text_surf = font.render("Aplicar", True, BLANCO, NEGRO) # Button text
-puerto_popup_cancel_text_surf = font.render("Cancelar", True, BLANCO, NEGRO) # Button text
+# Pre-rendered text for "Puerto" pop-up (can be done once, text color will adapt)
+# These surfaces will be re-rendered if colors change
+puerto_popup_title_surf = None # font_large.render("Configurar Puerto", True, BLANCO)
+puerto_popup_com_label_surf = None # font.render("Puerto COM:", True, BLANCO)
+puerto_popup_baud_label_surf = None # font.render("Baudios:", True, BLANCO)
+puerto_popup_apply_text_surf = None # font.render("Aplicar", True, BLANCO, NEGRO) # Button text
+puerto_popup_cancel_text_surf = None # font.render("Cancelar", True, BLANCO, NEGRO) # Button text
 # --- End "Puerto" Pop-up State and UI Variables ---
 
 # --- Main Menu Pop-up State and Option Variables ---
@@ -468,6 +576,11 @@ menu_options_values = {
     "transmision": "ON",        # "ON", "OFF" (Square Green Light)
     "volumen_audio": 10,        # 1-10 (Dropdown)
     # ASIGNAR AJUSTE and ASIGNAR MENU are placeholders/actions, not direct value states here
+    # "nivel_alarma": 9,          # REMOVED
+    # "explor_auto": "ON",        # REMOVED
+    # "sector_explor": "±10°",    # REMOVED
+    # "inclin_auto": "ON",        # REMOVED
+    # "angulo_inclin": "±2-10°",  # REMOVED
 }
 
 # States for individual dropdowns within the main menu
@@ -483,9 +596,9 @@ menu_dropdown_states = {
     "anular_color": False,      # Will be a dropdown 1-10 as per original full list
     "promedio_eco": False,
     "rechazo_interf": False,
-    "nivel_alarma": False,
-    "sector_explor": False,
-    "angulo_inclin": False,
+    # "nivel_alarma": False,    # REMOVED
+    # "sector_explor": False,   # REMOVED
+    # "angulo_inclin": False,   # REMOVED
     "volumen_audio": False
 }
 # --- End Main Menu Pop-up State and Option Variables ---
@@ -502,7 +615,7 @@ ship_track_points = []
 MAX_TRACK_DISTANCE_METERS = 5 * 1852  # 5 Nautical Miles in meters
 TRACK_POINT_INTERVAL_MS = 1000      # Add a track point every 1 second
 last_track_point_add_time = 0       # Timestamp of the last added track point
-COLOR_TRACK = GRIS_MUY_CLARO        # Color for the track line
+    # COLOR_TRACK = GRIS_MUY_CLARO        # Color for the track line - Will use current_colors["SHIP_TRACK"]
 # --- End Ship Track Variables ---
 
 # --- Sonar Sweep Variables ---
@@ -577,8 +690,8 @@ target_markers = [] # List to store target dictionaries
 TARGET_TYPE_RHOMBUS = "rhombus"
 TARGET_TYPE_X = "x"
 # All markers will be initially white. Hovering will make them red.
-COLOR_TARGET_BASE = BLANCO # Base color for all markers
-COLOR_TARGET_HOVER = ROJO   # Color when hovered or selected
+# COLOR_TARGET_BASE = BLANCO # Base color for all markers - Will use current_colors["TARGET_BASE"]
+# COLOR_TARGET_HOVER = ROJO   # Color when hovered or selected - Will use current_colors["TARGET_HOVER"]
 
 # --- UI State Dictionary ---
 ui_state = {
@@ -646,7 +759,7 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
                 'original_angle_rad': None, # For 'screen' mode: standard math angle (atan2(dy,dx)) from center
                 'screen_bearing_rad': None, # For 'screen' mode: visual angle from screen up (atan2(dx,-dy)) for NMEA conversion
                 'type': TARGET_TYPE_RHOMBUS,
-                'color': COLOR_TARGET_BASE,
+                # 'color': COLOR_TARGET_BASE, # Color will be determined by current_colors and hover state
                 'timestamp': current_time,
                 'current_screen_pos': None,
                 'is_hovered': False
@@ -1034,7 +1147,7 @@ def handle_menu_dropdown_click(event_pos, option_key, base_value_box_rect,
     Updates menu_options_values and menu_dropdown_states.
     Returns True if a click related to this dropdown was processed, False otherwise.
     """
-    global menu_options_values, menu_dropdown_states
+    global menu_options_values, menu_dropdown_states, current_colors, active_color_scheme_idx
 
     # 1. Check click on the value_box (to open/close dropdown)
     if base_value_box_rect and base_value_box_rect.collidepoint(event_pos):
@@ -1150,11 +1263,22 @@ def handle_square_selector_click(event_pos, option_key_name, square_rects_list, 
     Updates menu_options_values.
     Returns True if a click was processed, False otherwise.
     """
-    global menu_options_values
+    global menu_options_values, current_colors, active_color_scheme_idx
     for i, rect in enumerate(square_rects_list):
         if rect.collidepoint(event_pos):
             if i < len(option_values_list): # Make sure index is valid
-                menu_options_values[option_key_name] = option_values_list[i]
+                new_value = option_values_list[i]
+                menu_options_values[option_key_name] = new_value
+
+                if option_key_name == "color_menu":
+                    active_color_scheme_idx = int(new_value) # color_menu stores 1,2,3,4 as string or int
+                    current_colors = color_schemes[active_color_scheme_idx]
+                    # Need to trigger re-render of text surfaces that depend on these colors
+                    # This will be handled by making their surface variables None and re-rendering in main loop,
+                    # or by a dedicated function to update all themed surfaces.
+                    # For now, the main loop will pick up the new current_colors.
+                    print(f"Color scheme changed to: {active_color_scheme_idx}")
+
                 return True # Click processed
     return False
 # --- End Square Selector Click Handling Helper ---
@@ -2253,13 +2377,13 @@ while not hecho:
     prev_serial_port_available = serial_port_available
 
     # Limpia la pantalla y establece su color de fondo
-    pantalla.fill(AZUL)
+    pantalla.fill(current_colors["BACKGROUND"])
 
 
     # Usar las variables calculadas dinámicamente para el círculo del sonar
     dimensiones_caja = [circle_origin_x, circle_origin_y, circle_width, circle_height]
     # Dibujamos el borde de un círculo para 'barrerlo'
-    pygame.draw.ellipse(pantalla, BLANCO, dimensiones_caja, 2)
+    pygame.draw.ellipse(pantalla, current_colors["PRIMARY_TEXT"], dimensiones_caja, 2)
 
 
 
@@ -2275,31 +2399,35 @@ while not hecho:
         r_int = int(r) 
         ring_dims = [center_x - r_int, center_y - r_int, 2 * r_int, 2 * r_int]
         # pygame.draw.ellipse(pantalla, GRIS_MEDIO, ring_dims, 2) # Changed color to GRIS_MEDIO
-        draw_dotted_ellipse(pantalla, GRIS_MUY_CLARO, ring_dims, dot_radius=1, spacing_angle=5) # Changed to GRIS_MUY_CLARO
+        draw_dotted_ellipse(pantalla, current_colors["RANGE_RINGS"], ring_dims, dot_radius=1, spacing_angle=5) # Changed to GRIS_MUY_CLARO
 
 
     # Draw the compass rose
     # Assuming 'font' is the desired font for cardinal labels.
     # You might want to use a specific font size for clarity.
-    draw_compass_rose(pantalla, center_x, center_y, main_radius, font, BLANCO, current_ship_heading)
+    draw_compass_rose(pantalla, center_x, center_y, main_radius, font, current_colors["COMPASS_ROSE"], current_ship_heading)
 
     # --- Draw Sonar Sweep ---
     if current_sweep_radius_pixels > 0 and current_sweep_radius_pixels <= display_radius_pixels:
         # Draw a semi-transparent blue circle for the sweep
         # To make it semi-transparent, we create a temporary surface
         sweep_surface = pygame.Surface((display_radius_pixels * 2, display_radius_pixels * 2), pygame.SRCALPHA)
-        pygame.draw.circle(sweep_surface, (*CELESTE, 150),  # Changed AZUL to CELESTE, alpha 150
+        sweep_color_with_alpha = (*current_colors["SWEEP"], 150)
+        pygame.draw.circle(sweep_surface, sweep_color_with_alpha,  # Changed AZUL to CELESTE, alpha 150
                            (display_radius_pixels, display_radius_pixels), # Center of the temp surface
                            int(current_sweep_radius_pixels), 2) # Thickness 2
         pantalla.blit(sweep_surface, (center_x - display_radius_pixels, center_y - display_radius_pixels))
     # --- End Draw Sonar Sweep ---
 
     # Draw the center icon
-    draw_center_icon(pantalla, center_x, center_y, 36, BLANCO) # Changed height to 36, thickness remains 5
+    draw_center_icon(pantalla, center_x, center_y, 36, current_colors["CENTER_ICON"]) # Changed height to 36, thickness remains 5
 
     # --- End Display Calculated Target Data ---
 
     # --- Draw Sonar Rose Unit Text (Bottom-Right of Sonar Rose, above target data if visible) ---
+    # Re-render active_sonar_rose_unit_surface with current colors
+    active_sonar_rose_unit_surface = font.render(sonar_rose_unit_text_map[current_unit], True, current_colors["PRIMARY_TEXT"])
+
     if active_sonar_rose_unit_surface:
         sonar_rose_unit_rect = active_sonar_rose_unit_surface.get_rect()
         
@@ -2337,18 +2465,18 @@ while not hecho:
 
     # Display current heading at the top of the sonar circle
     heading_text_str = f"{int(current_ship_heading)}°" 
-    heading_text_surface = font_very_large.render(heading_text_str, True, BLANCO) 
+    heading_text_surface = font_very_large.render(heading_text_str, True, current_colors["PRIMARY_TEXT"]) 
     heading_text_rect = heading_text_surface.get_rect()
     heading_text_rect.centerx = center_x # center_x is circle_center_x
     heading_text_rect.top = circle_origin_y + 5 
     pantalla.blit(heading_text_surface, heading_text_rect)
 
     # Unified data box on the right (already adjusted dimensions - unified_data_box_dims)
-    pygame.draw.rect(pantalla, NEGRO, unified_data_box_dims)
-    pygame.draw.rect(pantalla, VERDE, unified_data_box_dims, 2)
+    pygame.draw.rect(pantalla, current_colors["DATA_PANEL_BG"], unified_data_box_dims)
+    pygame.draw.rect(pantalla, current_colors["DATA_PANEL_BORDER"], unified_data_box_dims, 2)
 
   # Slot 1: VELOCIDAD
-    text_surface_longitud = font.render(texto_longitud, True, BLANCO) # texto_longitud is "VELOC DEL BARCO"
+    text_surface_longitud = font.render(texto_longitud, True, current_colors["PRIMARY_TEXT"]) # texto_longitud is "VELOC DEL BARCO"
     text_rect_longitud = text_surface_longitud.get_rect()
     text_rect_longitud.left = unified_data_box_dims[0] + 5 
     text_rect_longitud.top = unified_data_box_dims[1] + 5 
@@ -2361,7 +2489,7 @@ while not hecho:
         numeric_part_speed = speed_str.replace(" Knots", "").strip()
         display_speed_text = f"{numeric_part_speed} kn"
 
-    text_surface_speed_data = font_size_54.render(display_speed_text, True, BLANCO) # Changed to font_size_54
+    text_surface_speed_data = font_size_54.render(display_speed_text, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
     text_rect_speed_data = text_surface_speed_data.get_rect()
     text_rect_speed_data.right = unified_data_box_dims[0] + unified_data_box_dims[2] - 5
     text_rect_speed_data.bottom = unified_data_box_dims[1] + 100 - 8 
@@ -2370,7 +2498,7 @@ while not hecho:
     # Slot 2: RUMBO
     y_offset_rumbo = unified_data_box_dims[1] + 100 + 5 # Start of RUMBO's 100px section + 5px padding from VELOCIDAD section
 
-    text_surface_velocidad = font.render(texto_velocidad, True, BLANCO) # texto_velocidad is "RUMBO DEL BARCO"
+    text_surface_velocidad = font.render(texto_velocidad, True, current_colors["PRIMARY_TEXT"]) # texto_velocidad is "RUMBO DEL BARCO"
     text_rect_velocidad = text_surface_velocidad.get_rect()
     text_rect_velocidad.left = unified_data_box_dims[0] + 5
     text_rect_velocidad.top = y_offset_rumbo + 5 # 5px from top of its allocated section
@@ -2396,7 +2524,7 @@ while not hecho:
         else: # If no numeric string was extracted (e.g., heading_str was non-numeric)
             display_heading_text = heading_str # Fallback
 
-    text_surface_heading_data = font_size_54.render(display_heading_text, True, BLANCO) # Changed to font_size_54
+    text_surface_heading_data = font_size_54.render(display_heading_text, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
     text_rect_heading_data = text_surface_heading_data.get_rect()
     text_rect_heading_data.right = unified_data_box_dims[0] + unified_data_box_dims[2] - 5
     text_rect_heading_data.bottom = y_offset_rumbo + 100 - 8 
@@ -2404,13 +2532,13 @@ while not hecho:
 
     # --- Slot 3: COORDENADAS/LAT/LON ---
     # Create all surfaces and get their initial rects first
-    text_surface_latitud = font.render(texto_latitud, True, BLANCO)
+    text_surface_latitud = font.render(texto_latitud, True, current_colors["PRIMARY_TEXT"])
     text_rect_latitud = text_surface_latitud.get_rect()
 
-    text_surface_lat_data = font_size_54.render(latitude_str, True, BLANCO) # Changed to font_size_54
+    text_surface_lat_data = font_size_54.render(latitude_str, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
     text_rect_lat_data = text_surface_lat_data.get_rect()
 
-    text_surface_lon_data = font_size_54.render(longitude_str, True, BLANCO) # Changed to font_size_54
+    text_surface_lon_data = font_size_54.render(longitude_str, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
     text_rect_lon_data = text_surface_lon_data.get_rect()
 
     # Set all horizontal positions
@@ -2441,19 +2569,19 @@ while not hecho:
     # display_box_1_dims height was 340.
     section2_start_y = unified_data_box_dims[1] + 340 + 10 # unified_data_box_dims[1] is 10. 10 + 340 + 10 = 360.
 
-    text_surface_db2_title = font.render(texto_dato_nuevo_1, True, BLANCO) 
+    text_surface_db2_title = font.render(texto_dato_nuevo_1, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_db2_title = text_surface_db2_title.get_rect()
     text_rect_db2_title.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_db2_title.top = section2_start_y + 5
     screen.blit(text_surface_db2_title, text_rect_db2_title)
 
-    text_surface_zda_time = font_data_medium.render(zda_time_str, True, BLANCO) 
+    text_surface_zda_time = font_data_medium.render(zda_time_str, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_zda_time = text_surface_zda_time.get_rect()
     text_rect_zda_time.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_zda_time.top = text_rect_db2_title.bottom + 3 
     screen.blit(text_surface_zda_time, text_rect_zda_time)
 
-    text_surface_zda_date = font_data_medium.render(zda_date_str, True, BLANCO) 
+    text_surface_zda_date = font_data_medium.render(zda_date_str, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_zda_date = text_surface_zda_date.get_rect()
     text_rect_zda_date.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_zda_date.top = text_rect_zda_time.bottom + 3 
@@ -2462,26 +2590,26 @@ while not hecho:
     # Slot 5: DATO NUEVO 3 - PITCH / ROLL (Moved up)
     y_start_pitch_roll = text_rect_zda_date.bottom + 18 # Start after HORA/FECHA (relative positioning)
 
-    text_surface_db4_title = font.render(texto_dato_nuevo_3, True, BLANCO) 
+    text_surface_db4_title = font.render(texto_dato_nuevo_3, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_db4_title = text_surface_db4_title.get_rect()
     text_rect_db4_title.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_db4_title.top = y_start_pitch_roll
     screen.blit(text_surface_db4_title, text_rect_db4_title)
 
-    text_surface_att_pitch = font_data_medium.render(att_pitch_str, True, BLANCO) 
+    text_surface_att_pitch = font_data_medium.render(att_pitch_str, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_att_pitch = text_surface_att_pitch.get_rect()
     text_rect_att_pitch.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_att_pitch.top = text_rect_db4_title.bottom + 3 
     screen.blit(text_surface_att_pitch, text_rect_att_pitch)
 
-    text_surface_att_roll = font_data_medium.render(att_roll_str, True, BLANCO) 
+    text_surface_att_roll = font_data_medium.render(att_roll_str, True, current_colors["PRIMARY_TEXT"]) 
     text_rect_att_roll = text_surface_att_roll.get_rect()
     text_rect_att_roll.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     text_rect_att_roll.top = text_rect_att_pitch.bottom + 3 
     screen.blit(text_surface_att_roll, text_rect_att_roll)
     
     # Slot 6: DATO NUEVO 2 - RATE OF TURN -- REMOVED
-    # text_surface_db3_title = font.render(texto_dato_nuevo_2, True, BLANCO) # texto_dato_nuevo_2 is removed
+    # text_surface_db3_title = font.render(texto_dato_nuevo_2, True, current_colors["PRIMARY_TEXT"]) # texto_dato_nuevo_2 is removed
     # text_rect_db3_title = text_surface_db3_title.get_rect()
     # text_rect_db3_title.centerx = unified_data_box_dims[0] + unified_data_box_dims[2] // 2
     # text_rect_db3_title.top = text_rect_att_roll.bottom + 18 
@@ -2507,30 +2635,40 @@ while not hecho:
     button_width = (total_available_width_for_buttons - gap_between_main_buttons) // 2
 
     # UNIDADES Button
+    # Re-render surface if None (e.g., after color change)
+    if button_unidades_text_surface is None:
+        button_unidades_text_surface = font.render("UNIDADES", True, current_colors["PRIMARY_TEXT"], current_colors["BUTTON_BG"])
+
     button_unidades_rect.width = button_width
     button_unidades_rect.height = button_unidades_text_surface.get_height() + (2 * button_internal_padding_y)
     button_unidades_rect.left = unified_data_box_dims[0] + box_internal_padding 
     button_unidades_rect.top = text_rect_att_roll.bottom + 15 # Relative positioning still works
 
     if not show_unidades_popup and not show_puerto_popup: # Hide if either popup is active over this area
-        pygame.draw.rect(pantalla, NEGRO, button_unidades_rect) 
-        pygame.draw.rect(pantalla, VERDE, button_unidades_rect, 2) 
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BG"], button_unidades_rect) 
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BORDER"], button_unidades_rect, 2) 
         text_blit_rect_unidades = button_unidades_text_surface.get_rect(center=button_unidades_rect.center)
         pantalla.blit(button_unidades_text_surface, text_blit_rect_unidades)
 
     # PUERTO Button
+    if button_puerto_text_surface is None:
+        button_puerto_text_surface = font.render("PUERTO", True, current_colors["PRIMARY_TEXT"], current_colors["BUTTON_BG"])
+
     button_puerto_rect.width = button_width
     button_puerto_rect.height = button_puerto_text_surface.get_height() + (2 * button_internal_padding_y)
     button_puerto_rect.left = button_unidades_rect.right + gap_between_main_buttons
     button_puerto_rect.top = button_unidades_rect.top # Align top with Unidades button
 
     if not show_puerto_popup and not show_unidades_popup: # Hide if either popup is active
-        pygame.draw.rect(pantalla, NEGRO, button_puerto_rect)
-        pygame.draw.rect(pantalla, VERDE, button_puerto_rect, 1) 
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BG"], button_puerto_rect)
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BORDER"], button_puerto_rect, 1) 
         text_blit_rect_puerto = button_puerto_text_surface.get_rect(center=button_puerto_rect.center)
         pantalla.blit(button_puerto_text_surface, text_blit_rect_puerto)
     
     # --- Draw "MENÚ" Button ---
+    if button_menu_text_surface is None:
+        button_menu_text_surface = font.render("MENÚ", True, current_colors["PRIMARY_TEXT"], current_colors["BUTTON_BG"])
+
     # Positioned in the top-right corner of the screen.
     menu_button_padding_x = 10
     menu_button_padding_y = 5 
@@ -2547,8 +2685,8 @@ while not hecho:
     # Draw MENÚ button only if no other popups are obscuring its general area
     # (This simple check might need refinement if popups overlap precisely)
     if not show_puerto_popup and not show_unidades_popup: # and not show_main_menu_popup (if it shouldn't be drawn when open)
-        pygame.draw.rect(pantalla, NEGRO, button_menu_rect)
-        pygame.draw.rect(pantalla, VERDE, button_menu_rect, 1)
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BG"], button_menu_rect)
+        pygame.draw.rect(pantalla, current_colors["BUTTON_BORDER"], button_menu_rect, 1)
         text_blit_rect_menu = button_menu_text_surface.get_rect(center=button_menu_rect.center)
         pantalla.blit(button_menu_text_surface, text_blit_rect_menu)
     # --- End Draw "MENÚ" Button ---
@@ -2568,7 +2706,7 @@ while not hecho:
 
     # --- Display Current Range ---
     range_text_str = f"R {current_range_val_from_list}{active_unit_suffix}"
-    range_surface = font_data_medium.render(range_text_str, True, BLANCO)
+    range_surface = font_data_medium.render(range_text_str, True, current_colors["PRIMARY_TEXT"])
     range_rect = range_surface.get_rect()
     # Posicionar a la izquierda del círculo del sonar, si hay espacio, o encima del panel de datos.
     range_rect.right = circle_origin_x + circle_width + unified_data_box_dims[0] - (circle_origin_x + circle_width) - 10 # Margen de 10px a la izquierda del panel de datos
@@ -2584,7 +2722,7 @@ while not hecho:
 
     # --- Display Current Tilt (Top Right) ---
     tilt_text_str = f"T {current_tilt_angle}°"
-    tilt_surface = font_data_medium.render(tilt_text_str, True, BLANCO)
+    tilt_surface = font_data_medium.render(tilt_text_str, True, current_colors["PRIMARY_TEXT"])
     tilt_rect = tilt_surface.get_rect()
     tilt_rect.right = range_rect.right # Alinear con el display de Rango
     tilt_rect.top = range_rect.bottom + 5
@@ -2593,7 +2731,7 @@ while not hecho:
 
     # --- Display Current Gain (Top Right) ---
     gain_text_str = f"G {current_gain:.1f}"
-    gain_surface = font_data_medium.render(gain_text_str, True, BLANCO)
+    gain_surface = font_data_medium.render(gain_text_str, True, current_colors["PRIMARY_TEXT"])
     gain_rect = gain_surface.get_rect()
     gain_rect.right = range_rect.right # Alinear con el display de Rango
     gain_rect.top = tilt_rect.bottom + 15
@@ -2603,10 +2741,10 @@ while not hecho:
     # --- Display Calculated Cursor Data (Top-Left, dentro del círculo del sonar si es posible) ---
     unit_suffix_for_display = sonar_rose_unit_text_map[current_unit] 
     
-    line1_text = f"H: {ui_state['cursor_H_proj_display']}{unit_suffix_for_display}"
-    line2_text = f"S: {ui_state['cursor_S_range_display']}{unit_suffix_for_display} \u2198" 
-    line3_text = f"D: {ui_state['cursor_Depth_display']}{unit_suffix_for_display}" # Original full string for value
-    line4_text_val = f"{ui_state['cursor_bearing_display']}°" # Original full string for value
+    # line1_text = f"H: {ui_state['cursor_H_proj_display']}{unit_suffix_for_display}" # No longer used directly
+    # line2_text = f"S: {ui_state['cursor_S_range_display']}{unit_suffix_for_display} \u2198" # No longer used directly
+    # line3_text = f"D: {ui_state['cursor_Depth_display']}{unit_suffix_for_display}" # Original full string for value - No longer used directly
+    # line4_text_val = f"{ui_state['cursor_bearing_display']}°" # Original full string for value - No longer used directly
 
     # Data for cursor display: (Label, value_string_getter_or_value, suffix_for_label)
     cursor_info_lines = [
@@ -2627,8 +2765,8 @@ while not hecho:
         if label_str == "B":
             current_label_font = font 
             
-        label_surf = current_label_font.render(label_full_str, True, BLANCO)
-        value_surf = font.render(value_str, True, BLANCO) 
+        label_surf = current_label_font.render(label_full_str, True, current_colors["PRIMARY_TEXT"])
+        value_surf = font.render(value_str, True, current_colors["PRIMARY_TEXT"]) 
 
         label_rect = label_surf.get_rect(topleft=(cursor_info_left_margin, current_cursor_y_offset))
         value_rect = value_surf.get_rect(left=label_rect.right + label_value_spacing, centery=label_rect.centery)
@@ -2679,8 +2817,8 @@ while not hecho:
         rendered_lines = []
         for label_str, value_str, is_special in target_data_lines_info:
             font_for_label = large_symbol_font if is_special else label_font
-            label_surf = font_for_label.render(label_str, True, BLANCO)
-            value_surf = label_font.render(value_str, True, BLANCO) # Values always small
+            label_surf = font_for_label.render(label_str, True, current_colors["PRIMARY_TEXT"])
+            value_surf = label_font.render(value_str, True, current_colors["PRIMARY_TEXT"]) # Values always small
             line_width = label_surf.get_width() + symbol_value_spacing + value_surf.get_width()
             if line_width > max_line_width:
                 max_line_width = line_width
@@ -2732,10 +2870,10 @@ while not hecho:
     if ui_state["show_plus_cursor"]:
         cursor_x, cursor_y = ui_state["mouse_cursor_pos"]
         cursor_arm_length = 18 
-        pygame.draw.line(pantalla, BLANCO,
+        pygame.draw.line(pantalla, current_colors["CURSOR_CROSS"],
                          (cursor_x - cursor_arm_length, cursor_y), 
                          (cursor_x + cursor_arm_length, cursor_y), 2)
-        pygame.draw.line(pantalla, BLANCO,
+        pygame.draw.line(pantalla, current_colors["CURSOR_CROSS"],
                          (cursor_x, cursor_y - cursor_arm_length), 
                          (cursor_x, cursor_y + cursor_arm_length), 2)
     # --- End Draw Custom "+" Cursor ---
@@ -2766,7 +2904,7 @@ while not hecho:
 
         if draw_pos:
             mx, my = draw_pos
-            current_marker_color = COLOR_TARGET_HOVER if marker.get('is_hovered', False) else COLOR_TARGET_BASE
+            current_marker_color = current_colors["TARGET_HOVER"] if marker.get('is_hovered', False) else current_colors["TARGET_BASE"]
             if marker['type'] == TARGET_TYPE_RHOMBUS:
                 draw_rhombus(pantalla, current_marker_color, mx, my, marker_icon_size)
             elif marker['type'] == TARGET_TYPE_X:
@@ -2791,7 +2929,7 @@ while not hecho:
 
         if pos1 and pos2:
             # Both markers are on screen, draw a direct line.
-            pygame.draw.line(pantalla, BLANCO, pos1, pos2, 1)
+            pygame.draw.line(pantalla, current_colors["PRIMARY_TEXT"], pos1, pos2, 1)
         
         elif pos1 and not pos2: # Marker1 is on screen, Marker2 is off screen (pos2 is None)
             hypothetical_pos2_far = None
@@ -2841,7 +2979,7 @@ while not hecho:
                     )
                     if intersection_point:
                         if math.sqrt((intersection_point[0]-pos1[0])**2 + (intersection_point[1]-pos1[1])**2) > 1:
-                             pygame.draw.line(pantalla, BLANCO, pos1, intersection_point, 1)
+                             pygame.draw.line(pantalla, current_colors["PRIMARY_TEXT"], pos1, intersection_point, 1)
 
         elif not pos1 and pos2: # Marker1 is off screen (pos1 is None), Marker2 is on screen
             hypothetical_pos1_far = None
@@ -2885,7 +3023,7 @@ while not hecho:
                     )
                     if intersection_point:
                         if math.sqrt((intersection_point[0]-pos2[0])**2 + (intersection_point[1]-pos2[1])**2) > 1:
-                            pygame.draw.line(pantalla, BLANCO, pos2, intersection_point, 1)
+                            pygame.draw.line(pantalla, current_colors["PRIMARY_TEXT"], pos2, intersection_point, 1)
 
     # --- End Draw Target Markers & Lines ---
 
@@ -2898,13 +3036,13 @@ while not hecho:
     draw_ship_track(pantalla, ship_track_points, 
                     current_ship_lat_deg, current_ship_lon_deg, current_ship_heading,
                     circle_center_x, circle_center_y, display_radius_pixels,
-                    s_max_for_track_draw, current_unit, COLOR_TRACK)
+                    s_max_for_track_draw, current_unit, current_colors["SHIP_TRACK"])
     # --- End Draw Ship Track ---
 
     # --- Temporary Tilt Display on Sonar Circle (Proa) ---
     if show_tilt_temporarily:
         temp_tilt_text_str = f"T {current_tilt_angle}°" 
-        temp_tilt_surface = font_data_medium.render(temp_tilt_text_str, True, BLANCO) 
+        temp_tilt_surface = font_data_medium.render(temp_tilt_text_str, True, current_colors["PRIMARY_TEXT"]) 
         temp_tilt_rect = temp_tilt_surface.get_rect()
         temp_tilt_rect.centerx = circle_center_x # Use circle_center_x consistently
         temp_tilt_rect.top = heading_text_rect.bottom + 5 
@@ -2922,7 +3060,7 @@ while not hecho:
     if show_range_temporarily:
         current_range_val_for_temp_display = range_presets_map[current_unit][current_range_index]
         temp_range_text_str = f"R {current_range_val_for_temp_display}{range_display_suffix_map[current_unit]}"
-        temp_range_surface = font_data_medium.render(temp_range_text_str, True, BLANCO)
+        temp_range_surface = font_data_medium.render(temp_range_text_str, True, current_colors["PRIMARY_TEXT"])
         temp_range_rect = temp_range_surface.get_rect()
         temp_range_rect.centerx = circle_center_x # Use circle_center_x
 
@@ -2942,7 +3080,7 @@ while not hecho:
     # --- Temporary Gain Display on Sonar Circle (Proa) ---
     if show_gain_temporarily:
         temp_gain_text_str = f"G {current_gain:.1f}"
-        temp_gain_surface = font_data_medium.render(temp_gain_text_str, True, BLANCO)
+        temp_gain_surface = font_data_medium.render(temp_gain_text_str, True, current_colors["PRIMARY_TEXT"])
         temp_gain_rect = temp_gain_surface.get_rect()
         temp_gain_rect.centerx = circle_center_x # Use circle_center_x
 
@@ -2985,7 +3123,7 @@ while not hecho:
             # For now, keeping centery as a last resort.
             popup_main_rect.centery = pantalla.get_rect().centery 
 
-
+        # Use GRIS_MEDIO for popup background, BLANCO for border (consistent across themes for now)
         pygame.draw.rect(pantalla, GRIS_MEDIO, popup_main_rect) 
         pygame.draw.rect(pantalla, BLANCO, popup_main_rect, 2)    
 
@@ -2993,6 +3131,13 @@ while not hecho:
         button_width = popup_width - 40 
         top_margin = 10 
         padding_between_buttons = 5 
+
+        # Re-render text surfaces for popup if they are None (e.g. after color change)
+        if popup_metros_text_surface is None:
+            popup_metros_text_surface = font.render("METROS", True, BLANCO, NEGRO) # Popup buttons keep BLANCO/NEGRO
+        if popup_brazas_text_surface is None:
+            popup_brazas_text_surface = font.render("BRAZAS", True, BLANCO, NEGRO)
+
 
         popup_metros_option_rect.width = button_width
         popup_metros_option_rect.height = button_height
@@ -3017,6 +3162,19 @@ while not hecho:
 
     # --- Draw "Puerto" Pop-up Window (if active) ---
     if show_puerto_popup:
+        # Re-render surfaces for Puerto popup if they are None
+        if puerto_popup_title_surf is None:
+            puerto_popup_title_surf = font_large.render("Configurar Puerto", True, BLANCO) # Popup text BLANCO
+        if puerto_popup_com_label_surf is None:
+            puerto_popup_com_label_surf = font.render("Puerto COM:", True, BLANCO)
+        if puerto_popup_baud_label_surf is None:
+            puerto_popup_baud_label_surf = font.render("Baudios:", True, BLANCO)
+        if puerto_popup_apply_text_surf is None:
+            puerto_popup_apply_text_surf = font.render("Aplicar", True, BLANCO, NEGRO) # Button text BLANCO/NEGRO
+        if puerto_popup_cancel_text_surf is None:
+            puerto_popup_cancel_text_surf = font.render("Cancelar", True, BLANCO, NEGRO)
+
+
         # Define pop-up size and position
         base_popup_width = 350  # Desired width for content
         popup_height = 280      # Fixed height
@@ -3051,12 +3209,12 @@ while not hecho:
         
         puerto_popup_main_rect.topleft = (popup_x, popup_y)
 
-
+        # Use GRIS_MEDIO for popup background, BLANCO for border (consistent across themes for now)
         pygame.draw.rect(pantalla, GRIS_MEDIO, puerto_popup_main_rect) 
         pygame.draw.rect(pantalla, BLANCO, puerto_popup_main_rect, 2)    
 
         title_rect = puerto_popup_title_surf.get_rect(centerx=puerto_popup_main_rect.centerx, top=puerto_popup_main_rect.top + 10)
-        pantalla.blit(puerto_popup_title_surf, title_rect)
+        pantalla.blit(puerto_popup_title_surf, title_rect) # Text color is BLANCO from re-render
 
         current_y_offset_puerto = title_rect.bottom + 15 # Renamed to avoid conflict
         popup_internal_padding_x = 15 
@@ -3064,14 +3222,14 @@ while not hecho:
         dropdown_item_height = 20
 
         # COM Port Selection
-        pantalla.blit(puerto_popup_com_label_surf, (puerto_popup_main_rect.left + popup_internal_padding_x, current_y_offset_puerto))
+        pantalla.blit(puerto_popup_com_label_surf, (puerto_popup_main_rect.left + popup_internal_padding_x, current_y_offset_puerto)) # Text color BLANCO
         puerto_popup_select_port_rect.topleft = (puerto_popup_main_rect.left + popup_internal_padding_x + puerto_popup_com_label_surf.get_width() + 10, current_y_offset_puerto -2)
         puerto_popup_select_port_rect.width = puerto_popup_main_rect.width - (popup_internal_padding_x * 2) - puerto_popup_com_label_surf.get_width() - 10
         puerto_popup_select_port_rect.height = dropdown_height
-        pygame.draw.rect(pantalla, NEGRO, puerto_popup_select_port_rect)
+        pygame.draw.rect(pantalla, NEGRO, puerto_popup_select_port_rect) # Dropdown box NEGRO/BLANCO
         pygame.draw.rect(pantalla, BLANCO, puerto_popup_select_port_rect, 1)
         port_display_text = selected_com_port_in_popup if selected_com_port_in_popup else "Seleccionar..."
-        port_display_surf = font.render(port_display_text, True, BLANCO)
+        port_display_surf = font.render(port_display_text, True, BLANCO) # Text in dropdown BLANCO
         pantalla.blit(port_display_surf, port_display_surf.get_rect(centery=puerto_popup_select_port_rect.centery, left=puerto_popup_select_port_rect.left + 5))
 
         current_y_offset_puerto += dropdown_height + 5 
@@ -3087,11 +3245,11 @@ while not hecho:
             actual_list_height = min(len(available_com_ports_list) * dropdown_item_height, max_dropdown_list_height)
             if not available_com_ports_list: actual_list_height = dropdown_item_height 
             
-            pygame.draw.rect(pantalla, NEGRO, (list_box_x, list_box_y, list_box_width, actual_list_height))
+            pygame.draw.rect(pantalla, NEGRO, (list_box_x, list_box_y, list_box_width, actual_list_height)) # Dropdown list NEGRO/BLANCO
             pygame.draw.rect(pantalla, BLANCO, (list_box_x, list_box_y, list_box_width, actual_list_height),1)
 
             if not available_com_ports_list:
-                no_ports_surf = font.render("No hay puertos disponibles", True, GRIS_MEDIO)
+                no_ports_surf = font.render("No hay puertos disponibles", True, GRIS_MEDIO) # GRIS_MEDIO for disabled text
                 pantalla.blit(no_ports_surf, no_ports_surf.get_rect(centerx=list_box_x + list_box_width // 2, top=temp_y_list_item + 2))
             else:
                 for i, port_name in enumerate(available_com_ports_list):
@@ -3099,9 +3257,9 @@ while not hecho:
                         break 
                     item_rect = pygame.Rect(list_box_x, temp_y_list_item, list_box_width, dropdown_item_height)
                     puerto_popup_port_list_item_rects.append(item_rect)
-                    item_color = BLANCO
+                    item_color = BLANCO # Default item color BLANCO
                     if port_name == selected_com_port_in_popup: 
-                        item_color = VERDE 
+                        item_color = VERDE # Selected item VERDE
                     port_item_surf = font.render(port_name, True, item_color)
                     pantalla.blit(port_item_surf, port_item_surf.get_rect(centery=item_rect.centery, left=item_rect.left + 5))
                     temp_y_list_item += dropdown_item_height
@@ -3111,13 +3269,13 @@ while not hecho:
 
 
         # Baud Rate Selection
-        pantalla.blit(puerto_popup_baud_label_surf, (puerto_popup_main_rect.left + popup_internal_padding_x, current_y_offset_puerto))
+        pantalla.blit(puerto_popup_baud_label_surf, (puerto_popup_main_rect.left + popup_internal_padding_x, current_y_offset_puerto)) # Text color BLANCO
         puerto_popup_select_baud_rect.topleft = (puerto_popup_main_rect.left + popup_internal_padding_x + puerto_popup_baud_label_surf.get_width() + 10, current_y_offset_puerto - 2)
         puerto_popup_select_baud_rect.width = puerto_popup_main_rect.width - (popup_internal_padding_x * 2) - puerto_popup_baud_label_surf.get_width() - 10
         puerto_popup_select_baud_rect.height = dropdown_height
-        pygame.draw.rect(pantalla, NEGRO, puerto_popup_select_baud_rect)
+        pygame.draw.rect(pantalla, NEGRO, puerto_popup_select_baud_rect) # Dropdown box NEGRO/BLANCO
         pygame.draw.rect(pantalla, BLANCO, puerto_popup_select_baud_rect, 1)
-        baud_display_surf = font.render(str(selected_baud_rate_in_popup), True, BLANCO)
+        baud_display_surf = font.render(str(selected_baud_rate_in_popup), True, BLANCO) # Text in dropdown BLANCO
         pantalla.blit(baud_display_surf, baud_display_surf.get_rect(centery=puerto_popup_select_baud_rect.centery, left=puerto_popup_select_baud_rect.left + 5))
         
         current_y_offset_puerto += dropdown_height + 5
@@ -3131,7 +3289,7 @@ while not hecho:
             puerto_popup_baud_list_item_rects.clear()
             temp_y_list_item = list_box_y
             actual_list_height = min(len(available_baud_rates_list) * dropdown_item_height, max_dropdown_list_height)
-            pygame.draw.rect(pantalla, NEGRO, (list_box_x, list_box_y, list_box_width, actual_list_height))
+            pygame.draw.rect(pantalla, NEGRO, (list_box_x, list_box_y, list_box_width, actual_list_height)) # Dropdown list NEGRO/BLANCO
             pygame.draw.rect(pantalla, BLANCO, (list_box_x, list_box_y, list_box_width, actual_list_height),1)
 
             for i, baud_val in enumerate(available_baud_rates_list):
@@ -3139,8 +3297,8 @@ while not hecho:
                     break 
                 item_rect = pygame.Rect(list_box_x, temp_y_list_item, list_box_width, dropdown_item_height)
                 puerto_popup_baud_list_item_rects.append(item_rect)
-                item_color = BLANCO
-                if baud_val == selected_baud_rate_in_popup: item_color = VERDE
+                item_color = BLANCO # Default item color BLANCO
+                if baud_val == selected_baud_rate_in_popup: item_color = VERDE # Selected item VERDE
                 
                 baud_item_surf = font.render(str(baud_val), True, item_color)
                 pantalla.blit(baud_item_surf, baud_item_surf.get_rect(centery=item_rect.centery, left=item_rect.left + 5))
@@ -3151,7 +3309,7 @@ while not hecho:
 
         # Status Message
         if puerto_popup_message:
-            msg_surf = font.render(puerto_popup_message, True, BLANCO)
+            msg_surf = font.render(puerto_popup_message, True, BLANCO) # Message text BLANCO
             msg_rect = msg_surf.get_rect(centerx=puerto_popup_main_rect.centerx, top=current_y_offset_puerto)
             pantalla.blit(msg_surf, msg_rect)
             current_y_offset_puerto = msg_rect.bottom + 10
@@ -3165,17 +3323,17 @@ while not hecho:
         puerto_popup_cancel_button_rect.height = button_height_puerto
         puerto_popup_cancel_button_rect.bottom = puerto_popup_main_rect.bottom - popup_internal_padding_x 
         puerto_popup_cancel_button_rect.right = puerto_popup_main_rect.centerx - (gap_between_buttons_puerto / 2)
-        pygame.draw.rect(pantalla, NEGRO, puerto_popup_cancel_button_rect)
-        pygame.draw.rect(pantalla, VERDE, puerto_popup_cancel_button_rect, 1)
-        pantalla.blit(puerto_popup_cancel_text_surf, puerto_popup_cancel_text_surf.get_rect(center=puerto_popup_cancel_button_rect.center))
+        pygame.draw.rect(pantalla, NEGRO, puerto_popup_cancel_button_rect) # Button BG NEGRO
+        pygame.draw.rect(pantalla, VERDE, puerto_popup_cancel_button_rect, 1) # Button Border VERDE
+        pantalla.blit(puerto_popup_cancel_text_surf, puerto_popup_cancel_text_surf.get_rect(center=puerto_popup_cancel_button_rect.center)) # Text BLANCO from re-render
 
         puerto_popup_apply_button_rect.width = button_width_puerto
         puerto_popup_apply_button_rect.height = button_height_puerto
         puerto_popup_apply_button_rect.bottom = puerto_popup_main_rect.bottom - popup_internal_padding_x 
         puerto_popup_apply_button_rect.left = puerto_popup_main_rect.centerx + (gap_between_buttons_puerto / 2)
-        pygame.draw.rect(pantalla, NEGRO, puerto_popup_apply_button_rect)
-        pygame.draw.rect(pantalla, VERDE, puerto_popup_apply_button_rect, 1)
-        pantalla.blit(puerto_popup_apply_text_surf, puerto_popup_apply_text_surf.get_rect(center=puerto_popup_apply_button_rect.center))
+        pygame.draw.rect(pantalla, NEGRO, puerto_popup_apply_button_rect) # Button BG NEGRO
+        pygame.draw.rect(pantalla, VERDE, puerto_popup_apply_button_rect, 1) # Button Border VERDE
+        pantalla.blit(puerto_popup_apply_text_surf, puerto_popup_apply_text_surf.get_rect(center=puerto_popup_apply_button_rect.center)) # Text BLANCO from re-render
     # --- End Draw "Puerto" Pop-up Window ---
 
     # --- Draw Main Menu Pop-up Panel ---
@@ -3213,29 +3371,21 @@ while not hecho:
             ("square", "angulo_haz_ver", "ANGULO HAZ VER:", ["ANCHO", "ESTRECHO"], "ROJO"),
             ("square", "color_menu", "COLOR:", [str(i) for i in range(1, 5)], "VERDE_CLARO"),
             # BORRAR MARCAS items are action buttons, not value states here
-            ("dropdown", "nivel_alarma", "NIVEL ALARMA:", range(1,11), None), # Added back
-            ("square", "explor_auto", "EXPLOR AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # Added back
-            ("dropdown", "sector_explor", "SECTOR EXPLOR:", ["±10°", "±20°", "±30°", "±60°", "±90°", "±170°"], None), # Added back
-            ("square", "inclin_auto", "INCLIN AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # Added back
-            ("dropdown", "angulo_inclin", "ANGULO INCLIN:", ["±2-10°", "±2-20°", "±2-30°", "±2-40°", "±2-55°"], None), # Added back
-            ("square", "transmision", "TRANSMISION:", ["ON", "OFF"], "VERDE_CLARO"),
+            # ("dropdown", "nivel_alarma", "NIVEL ALARMA:", range(1,11), None), # REMOVED
+            # ("square", "explor_auto", "EXPLOR AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # REMOVED
+            # ("dropdown", "sector_explor", "SECTOR EXPLOR:", ["±10°", "±20°", "±30°", "±60°", "±90°", "±170°"], None), # REMOVED
+            # ("square", "inclin_auto", "INCLIN AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # REMOVED
+            # ("dropdown", "angulo_inclin", "ANGULO INCLIN:", ["±2-10°", "±2-20°", "±2-30°", "±2-40°", "±2-55°"], None), # REMOVED
+            ("square", "transmision", "TRANSMISION:", [ ON", "OFF"], "VERDE_CLARO"),
             ("dropdown", "volumen_audio", "VOLUMEN AUDIO:", range(0, 11), None), # Changed range to 0-10
         ]
         
         for item_config_type, _, _, _, _ in _all_menu_items_config:
             _content_total_h += _menu_item_row_h + spacing_between_items
-
-        _asignar_label_h = font_menu_item.get_height() 
-        _content_total_h += _asignar_label_h + spacing_between_items 
-        _num_f_keys = 4
-        _f_key_item_h = font_menu_item.get_height() 
-        _content_total_h += _num_f_keys * (_f_key_item_h + 5) 
         
         # Subtract one spacing_between_items as the last item doesn't have spacing *after* it before bottom padding
-        if len(_all_menu_items_config) > 0 or _num_f_keys > 0 : # if there's any content
+        if len(_all_menu_items_config) > 0: # if there's any content
              _content_total_h -= spacing_between_items # remove last spacing if items exist
-             if len(_all_menu_items_config) == 0 and _num_f_keys > 0: # if only F-keys exist
-                  _content_total_h -= 5 # remove last F-key spacing
 
 
         calculated_panel_height = menu_panel_internal_padding_top + _content_total_h + menu_panel_internal_padding_bottom
@@ -3249,8 +3399,7 @@ while not hecho:
         # Ensure minimum height if calculated is too small or negative due to screen constraints
         menu_panel_rect.height = max(menu_panel_rect.height, 50)
 
-
-        
+        # Use GRIS_MEDIO for menu panel background, BLANCO for border (consistent for now)
         pygame.draw.rect(pantalla, GRIS_MEDIO, menu_panel_rect) 
         pygame.draw.rect(pantalla, BLANCO, menu_panel_rect, 2)   
 
@@ -3297,19 +3446,19 @@ while not hecho:
             
             current_menu_y_offset += occupied_h + spacing_between_items
         
-        # --- ASIGNAR AJUSTE (Placeholder) - drawn after loop ---
-        asignar_label_text = "ASIGNAR AJUSTE:"
-        asignar_label_surf = font_menu_item.render(asignar_label_text, True, BLANCO) 
-        asignar_label_rect = asignar_label_surf.get_rect(topleft=(menu_panel_rect.left + menu_padding_x, current_menu_y_offset))
-        pantalla.blit(asignar_label_surf, asignar_label_rect)
-        current_menu_y_offset += asignar_label_surf.get_height() + spacing_between_items
+        # --- ASIGNAR AJUSTE (Placeholder) - REMOVED ---
+        # asignar_label_text = "ASIGNAR AJUSTE:"
+        # asignar_label_surf = font_menu_item.render(asignar_label_text, True, BLANCO) 
+        # asignar_label_rect = asignar_label_surf.get_rect(topleft=(menu_panel_rect.left + menu_padding_x, current_menu_y_offset))
+        # pantalla.blit(asignar_label_surf, asignar_label_rect)
+        # current_menu_y_offset += asignar_label_surf.get_height() + spacing_between_items
 
-        f_key_options = ["TECLA F1", "TECLA F2", "TECLA F3", "TECLA F4"]
-        for f_key_text in f_key_options:
-            f_key_surf = font_menu_item.render(f_key_text, True, GRIS_MEDIO) 
-            f_key_rect = f_key_surf.get_rect(topleft=(menu_panel_rect.left + menu_padding_x + 20, current_menu_y_offset))
-            pantalla.blit(f_key_surf, f_key_rect)
-            current_menu_y_offset += f_key_surf.get_height() + 5 
+        # f_key_options = ["TECLA F1", "TECLA F2", "TECLA F3", "TECLA F4"] # REMOVED
+        # for f_key_text in f_key_options:
+            # f_key_surf = font_menu_item.render(f_key_text, True, GRIS_MEDIO) 
+            # f_key_rect = f_key_surf.get_rect(topleft=(menu_panel_rect.left + menu_padding_x + 20, current_menu_y_offset))
+            # pantalla.blit(f_key_surf, f_key_rect)
+            # current_menu_y_offset += f_key_surf.get_height() + 5 
 
 
     # --- End Draw Main Menu Pop-up Panel ---
@@ -3323,3 +3472,4 @@ while not hecho:
 if serial_port_available and ser is not None:
     ser.close()
 pygame.quit()
+
