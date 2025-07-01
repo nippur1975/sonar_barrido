@@ -2068,11 +2068,22 @@ while not hecho:
         sweep_increment_ppf = sweep_pixels_per_second / FPS
     
     # --- Sonar Sweep Animation Logic ---
-    current_sweep_radius_pixels += sweep_increment_ppf
-    if current_sweep_radius_pixels > display_radius_pixels:
-        current_sweep_radius_pixels = 0 # Reset sweep
-        if sonar_ping_sound: # Play sound if loaded successfully
-            sonar_ping_sound.play()
+    if menu_options_values["transmision"] == "ON":
+        current_sweep_radius_pixels += sweep_increment_ppf
+        if current_sweep_radius_pixels > display_radius_pixels:
+            current_sweep_radius_pixels = 0 # Reset sweep
+            if sonar_ping_sound: # Play sound if loaded successfully
+                sonar_ping_sound.play()
+    else:
+        # If transmission is OFF, we can choose to reset the sweep
+        # or leave it at its current position. Resetting is cleaner.
+        current_sweep_radius_pixels = 0
+        # Ensure sound is stopped if it was somehow playing or cued
+        if sonar_ping_sound and pygame.mixer.get_busy(): # Check if any channel is busy
+            sonar_ping_sound.stop() # Stop the specific sound if it's playing
+            # Alternatively, stop all sounds: pygame.mixer.stop()
+            # but stopping the specific sound is more targeted.
+
     # --- End Sonar Sweep Animation Logic ---
     # --- End Sonar Sweep Parameter Calculation ---
 
@@ -3376,7 +3387,7 @@ while not hecho:
             # ("dropdown", "sector_explor", "SECTOR EXPLOR:", ["±10°", "±20°", "±30°", "±60°", "±90°", "±170°"], None), # REMOVED
             # ("square", "inclin_auto", "INCLIN AUTO:", ["ON", "OFF"], "VERDE_CLARO"), # REMOVED
             # ("dropdown", "angulo_inclin", "ANGULO INCLIN:", ["±2-10°", "±2-20°", "±2-30°", "±2-40°", "±2-55°"], None), # REMOVED
-            ("square", "transmision", "TRANSMISION:", [ ON", "OFF"], "VERDE_CLARO"),
+            ("square", "transmision", "TRANSMISION:", ["ON", "OFF"], "VERDE_CLARO"),
             ("dropdown", "volumen_audio", "VOLUMEN AUDIO:", range(0, 11), None), # Changed range to 0-10
         ]
         
