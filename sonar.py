@@ -2,12 +2,50 @@
 import pygame
 import math
 import os # Needed for path manipulation
+import random # Para la forma irregular del eco
 import serial # Already present
 import serial.tools.list_ports # For COM port detection
 from pygame.locals import *
 from geopy.distance import geodesic
 from geopy.point import Point
 
+
+class Cardumen:
+    def __init__(self, lat_inicial, lon_inicial, profundidad_superior, altura, ancho, velocidad_nudos, curso_grados, intensidad_base=0.9):
+        self.lat = lat_inicial  # Grados decimales
+        self.lon = lon_inicial  # Grados decimales
+        self.profundidad_superior = profundidad_superior  # Metros desde la superficie
+        self.profundidad_inferior = profundidad_superior + altura  # Metros desde la superficie
+        self.altura = altura # Metros
+        self.ancho = ancho    # Metros (diámetro/extensión horizontal)
+        
+        # Convertir velocidad de nudos a metros por segundo (1 nudo = 0.514444 m/s)
+        self.velocidad_mps = velocidad_nudos * 0.514444
+        # geopy.distance.destination espera grados para bearing, pero math functions esperan radianes
+        self.curso_grados = curso_grados # Usado por geopy
+
+        self.intensidad_base_eco = intensidad_base # Factor base para la intensidad del eco
+
+    def mover(self, delta_tiempo_seg):
+        """Mueve el cardumen basado en su velocidad, curso y el tiempo transcurrido."""
+        if self.velocidad_mps > 0 and delta_tiempo_seg > 0:
+            distancia_movida_m = self.velocidad_mps * delta_tiempo_seg
+            
+            punto_actual = Point(latitude=self.lat, longitude=self.lon)
+            # bearing es el curso en grados
+            nuevo_punto = geodesic(meters=distancia_movida_m).destination(point=punto_actual, bearing=self.curso_grados)
+            
+            self.lat = nuevo_punto.latitude
+            self.lon = nuevo_punto.longitude
+
+    def obtener_posicion_geo(self):
+        return Point(latitude=self.lat, longitude=self.lon)
+
+    def obtener_limites_profundidad(self):
+        return self.profundidad_superior, self.profundidad_inferior
+
+    def __str__(self):
+        return f"Cardumen en ({self.lat:.4f}, {self.lon:.4f}), Prof: {self.profundidad_superior}-{self.profundidad_inferior}m, Ancho: {self.ancho}m, Curso: {self.curso_grados}°"
 
 # Inicializamos el motor de juegos
 pygame.init()
@@ -328,6 +366,19 @@ DEFAULT_VERDE_CLARO = (144, 238, 144) # Light Green for some square selectors
 DEFAULT_GRIS_MEDIO = (128, 128, 128)
 DEFAULT_GRIS_MUY_CLARO = (220, 220, 220)
 
+COLORES_ECO_CARDUMEN_OPACOS = [
+    (139, 69, 19),   # Marrón oscuro (SaddleBrown) - Débil
+    (160, 82, 45),   # Marrón (Sienna)
+    (205, 92, 92),   # Rojo Indio (IndianRed)
+    (255, 0, 0)      # Rojo puro (Red) - Fuerte
+]
+COLORES_ESTELA_ECO_OPACOS = [
+    (255, 69, 0),      # Rojo-Naranja 
+    (255, 165, 0),     # Naranja
+    (255, 255, 0),     # Amarillo
+    (152, 251, 152)    # Verde pálido (PaleGreen)
+]
+
 # --- Definiciones de Esquemas de Color ---
 color_schemes = {
     1: { # Verde Militar
@@ -438,11 +489,11 @@ PI = 3.141592653
 # o usar un tamaño predeterminado si falla.
 try:
     display_info = pygame.display.Info()
-    initial_width = display_info.current_w
-    initial_height = display_info.current_h
+    # initial_width = display_info.current_w
+    # initial_height = display_info.current_h
     # Opcional: Usar un porcentaje del tamaño del escritorio o un máximo
-    # initial_width = int(display_info.current_w * 0.9)
-    # initial_height = int(display_info.current_h * 0.9)
+    initial_width = int(display_info.current_w * 0.9)
+    initial_height = int(display_info.current_h * 0.9)
 except pygame.error:
     initial_width = 1024 # Fallback
     initial_height = 768  # Fallback
@@ -639,6 +690,220 @@ except pygame.error as e:
     print("El programa continuará sin sonido de barrido.")
     sonar_ping_sound = None
 # --- End Load Sonar Sound ---
+
+# --- Inicialización del Cardumen ---
+# Asumimos que el barco está inicialmente en (0,0) si no hay datos NMEA,
+# y el cardumen está 600m al Norte.
+# Para una latitud 0, 600m al norte es un cambio pequeño en latitud.
+# 1 grado de latitud ~= 111,000 metros.
+# 600m / 111000 m/grado ~= 0.0054 grados.
+lat_barco_simulada = 0.0
+lon_barco_simulada = 0.0
+
+# Cardumen a 600m al Norte del punto (0,0)
+punto_inicio_barco_simulado = Point(latitude=lat_barco_simulada, longitude=lon_barco_simulada)
+distancia_inicial_cardumen_m = 600
+marcacion_inicial_cardumen_grados = 0 # Norte
+
+posicion_inicial_cardumen = geodesic(meters=distancia_inicial_cardumen_m).destination(point=punto_inicio_barco_simulado, bearing=marcacion_inicial_cardumen_grados)
+
+cardumen_simulado = Cardumen(
+    lat_inicial=posicion_inicial_cardumen.latitude,
+    lon_inicial=posicion_inicial_cardumen.longitude,
+    profundidad_superior=40,  # metros
+    altura=60,                # metros
+    ancho=200,                # metros
+    velocidad_nudos=4,
+    curso_grados=190,
+    intensidad_base=0.9
+)
+print(f"Cardumen inicializado: {cardumen_simulado}") # Para depuración
+# --- Fin Inicialización del Cardumen ---
+
+def dibujar_eco_cardumen(surface, centro_x, centro_y, radio_display_px, 
+                         max_rango_display_unidades_config, 
+                         distancia_real_m, marcacion_relativa_deg, 
+                         color_eco, cobertura_vertical,
+                         unidad_actual_str, cardumen_obj): # Nuevo argumento: cardumen_obj
+    if color_eco is None or cobertura_vertical <= 0.02: 
+        return
+
+    s_max_metros_conversion = max_rango_display_unidades_config
+    if unidad_actual_str == "BRAZAS": 
+        s_max_metros_conversion *= 1.8288
+    if s_max_metros_conversion == 0: return
+    
+    distancia_cardumen_px = (distancia_real_m / s_max_metros_conversion) * radio_display_px
+    if distancia_cardumen_px > radio_display_px: return 
+
+    angulo_centro_eco_rad_pantalla = math.radians(marcacion_relativa_deg - 90)
+
+    # Calcular dimensiones del eco en píxeles, ESCALADAS con el Rango
+    escala_px_por_metro = radio_display_px / s_max_metros_conversion if s_max_metros_conversion > 0 else 1
+
+    ancho_real_fisico_cardumen_m = cardumen_obj.ancho # 200m
+    # Para la 'altura' o 'profundidad' de la mancha en pantalla, usemos una fracción del ancho o un valor fijo.
+    # Esto representa qué tan 'grueso' se ve el eco, no necesariamente su altura vertical física directa.
+    profundidad_mancha_eco_m = ancho_real_fisico_cardumen_m * 0.25 # Ej: 50m de 'profundidad de mancha'
+
+    ancho_base_eco_px = ancho_real_fisico_cardumen_m * escala_px_por_metro
+    altura_base_eco_px = profundidad_mancha_eco_m * escala_px_por_metro
+
+    min_cobertura_para_tam_base = 0.1 
+    factor_cobertura_escalado = max(min_cobertura_para_tam_base, cobertura_vertical)
+    
+    altura_eco_final_px = int(altura_base_eco_px * factor_cobertura_escalado) 
+    ancho_eco_final_px = int(ancho_base_eco_px * factor_cobertura_escalado) 
+
+    if altura_eco_final_px < 3: altura_eco_final_px = 3
+    if ancho_eco_final_px < 5: ancho_eco_final_px = 5
+
+    eco_nucleo_centro_x_pantalla = centro_x + distancia_cardumen_px * math.cos(angulo_centro_eco_rad_pantalla)
+    eco_nucleo_centro_y_pantalla = centro_y + distancia_cardumen_px * math.sin(angulo_centro_eco_rad_pantalla)
+
+    # --- Núcleo Sólido ---
+    nucleo_ancho_px = int(ancho_eco_final_px * 0.55) 
+    nucleo_alto_px = int(altura_eco_final_px * 0.55)
+    if nucleo_ancho_px < 6: nucleo_ancho_px = 6
+    if nucleo_alto_px < 6: nucleo_alto_px = 6
+    radio_borde_nucleo = int(min(nucleo_ancho_px, nucleo_alto_px) * 0.35)
+
+    if nucleo_ancho_px >= 1 and nucleo_alto_px >= 1:
+        diag_nucleo = math.sqrt(nucleo_ancho_px**2 + nucleo_alto_px**2)
+        surf_nucleo_tam = int(diag_nucleo) + 4 
+        surf_nucleo = pygame.Surface((surf_nucleo_tam, surf_nucleo_tam), pygame.SRCALPHA)
+        surf_nucleo.fill((0,0,0,0))
+        rect_local_nucleo = pygame.Rect(0, 0, nucleo_ancho_px, nucleo_alto_px)
+        rect_local_nucleo.center = (surf_nucleo_tam // 2, surf_nucleo_tam // 2)
+        pygame.draw.rect(surf_nucleo, color_eco, rect_local_nucleo, border_radius=radio_borde_nucleo)
+        grados_rotacion_pygame = -math.degrees(angulo_centro_eco_rad_pantalla) 
+        surf_nucleo_rotada = pygame.transform.rotate(surf_nucleo, grados_rotacion_pygame)
+        blit_rect_nucleo = surf_nucleo_rotada.get_rect(center=(int(eco_nucleo_centro_x_pantalla), int(eco_nucleo_centro_y_pantalla)))
+        surface.blit(surf_nucleo_rotada, blit_rect_nucleo)
+
+    # --- Estela ---
+    num_puntos_estela = int((altura_eco_final_px * ancho_eco_final_px) / 2.0 * cobertura_vertical) 
+    num_puntos_estela = max(200, min(num_puntos_estela, 1800))
+    
+    semieje_altura_total_mancha = altura_eco_final_px / 2.0 
+    semieje_ancho_total_mancha = ancho_eco_final_px / 2.0
+    semieje_altura_nucleo = nucleo_alto_px / 2.0
+    semieje_ancho_nucleo = nucleo_ancho_px / 2.0
+
+    for _ in range(num_puntos_estela):
+        ang_aleatorio = random.uniform(0, 2 * math.pi)
+        factor_distancia = random.random() 
+        
+        r_altura_actual = semieje_altura_total_mancha * factor_distancia
+        r_ancho_actual = semieje_ancho_total_mancha * factor_distancia
+        
+        offset_local_x_e = r_ancho_actual * math.cos(ang_aleatorio)
+        offset_local_y_e = r_altura_actual * math.sin(ang_aleatorio)
+
+        if abs(offset_local_x_e) < semieje_ancho_nucleo and abs(offset_local_y_e) < semieje_altura_nucleo:
+            if random.random() < 0.9: 
+                continue
+        
+        px_e_offset_rotado = offset_local_x_e * math.cos(angulo_centro_eco_rad_pantalla) - offset_local_y_e * math.sin(angulo_centro_eco_rad_pantalla)
+        py_e_offset_rotado = offset_local_x_e * math.sin(angulo_centro_eco_rad_pantalla) + offset_local_y_e * math.cos(angulo_centro_eco_rad_pantalla)
+
+        px_eco_e = eco_nucleo_centro_x_pantalla + px_e_offset_rotado
+        py_eco_e = eco_nucleo_centro_y_pantalla + py_e_offset_rotado
+        
+        dist_del_centro_sonar_sq_e = (px_eco_e - centro_x)**2 + (py_eco_e - centro_y)**2
+        if dist_del_centro_sonar_sq_e > radio_display_px**2 :
+            continue 
+
+        inicio_estela_norm = 0.50 # Ajustado para que la estela empiece un poco antes
+        if factor_distancia < inicio_estela_norm: 
+            factor_distancia_estela_norm = 0 
+        else:
+            factor_distancia_estela_norm = (factor_distancia - inicio_estela_norm) / (1.0 - inicio_estela_norm)
+        factor_distancia_estela_norm = max(0, min(1, factor_distancia_estela_norm))
+
+        prob_dibujo_estela = math.exp(-(factor_distancia_estela_norm**2) * 2.0) # Ajustado decaimiento
+        if random.random() > prob_dibujo_estela:
+            continue
+
+        color_idx_estela = int(factor_distancia_estela_norm * (len(COLORES_ESTELA_ECO_OPACOS) -1) ) 
+        color_idx_estela = min(color_idx_estela, len(COLORES_ESTELA_ECO_OPACOS) - 1)
+        color_punto_estela = COLORES_ESTELA_ECO_OPACOS[color_idx_estela]
+        
+        pygame.draw.circle(surface, color_punto_estela, (int(px_eco_e), int(py_eco_e)), random.randint(2,3))
+
+
+
+
+def calcular_interseccion_haz_cardumen(barco_lat, barco_lon, barco_heading_deg, cardumen_obj, sonar_tilt_deg, apertura_haz_vertical_deg):
+    """
+    Calcula la intersección entre el haz del sonar y el cardumen.
+    Retorna:
+        - distancia_horizontal_m: Distancia horizontal del barco al cardumen.
+        - marcacion_relativa_deg: Marcación del cardumen relativa al frente del barco.
+        - factor_cobertura_vertical: Un valor de 0.0 a 1.0 indicando qué proporción
+                                     de la altura del cardumen es intersectada por el haz.
+        - en_haz_horizontal: Booleano, True si el cardumen está dentro de la marcación del haz principal (simplificado).
+    """
+    if barco_lat is None or barco_lon is None or cardumen_obj is None:
+        return 0, 0, 0.0, False
+
+    pos_barco = Point(latitude=barco_lat, longitude=barco_lon)
+    pos_cardumen = cardumen_obj.obtener_posicion_geo()
+
+    # 1. Distancia y Marcación Geográfica
+    distancia_horizontal_m = geodesic(pos_barco, pos_cardumen).meters
+    
+    delta_lon_rad = math.radians(pos_cardumen.longitude - pos_barco.longitude)
+    lat1_rad = math.radians(pos_barco.latitude)
+    lat2_rad = math.radians(pos_cardumen.latitude)
+    
+    y_brg = math.sin(delta_lon_rad) * math.cos(lat2_rad)
+    x_brg = math.cos(lat1_rad) * math.sin(lat2_rad) - \
+            math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(delta_lon_rad)
+    marcacion_geo_cardumen_deg = (math.degrees(math.atan2(y_brg, x_brg)) + 360) % 360
+
+    marcacion_relativa_deg = (marcacion_geo_cardumen_deg - barco_heading_deg + 360) % 360
+    en_haz_horizontal = True # Simplificación por ahora
+
+    # 2. Límites de profundidad del haz del sonar
+    prof_cardumen_sup, prof_cardumen_inf = cardumen_obj.obtener_limites_profundidad()
+    
+    tilt_rad = math.radians(sonar_tilt_deg)
+    media_apertura_haz_rad = math.radians(apertura_haz_vertical_deg / 2.0)
+    
+    angulo_sup_haz_rad = tilt_rad - media_apertura_haz_rad
+    angulo_inf_haz_rad = tilt_rad + media_apertura_haz_rad
+
+    if distancia_horizontal_m < 1:
+        prof_detectada_sup_haz = 0 
+        prof_detectada_inf_haz = float('inf')
+    else:
+        prof_detectada_sup_haz = distancia_horizontal_m * math.tan(angulo_sup_haz_rad)
+        prof_detectada_inf_haz = distancia_horizontal_m * math.tan(angulo_inf_haz_rad)
+
+    if prof_detectada_sup_haz > prof_detectada_inf_haz: # Puede pasar si tan da negativo y luego positivo
+        prof_detectada_sup_haz, prof_detectada_inf_haz = prof_detectada_inf_haz, prof_detectada_sup_haz
+        
+    if prof_detectada_sup_haz < 0: prof_detectada_sup_haz = 0
+
+    # 3. Solapamiento vertical
+    solapamiento_max_sup = max(prof_cardumen_sup, prof_detectada_sup_haz)
+    solapamiento_min_inf = min(prof_cardumen_inf, prof_detectada_inf_haz)
+    
+    altura_solapamiento = 0
+    if solapamiento_min_inf > solapamiento_max_sup:
+        altura_solapamiento = solapamiento_min_inf - solapamiento_max_sup
+        
+    # 4. Factor de cobertura vertical
+    factor_cobertura_vertical = 0.0
+    if cardumen_obj.altura > 0 and altura_solapamiento > 0:
+        factor_cobertura_vertical = min(altura_solapamiento / cardumen_obj.altura, 1.0)
+        
+    # Debug:
+    # if factor_cobertura_vertical > 0:
+    #    print(f"DistH: {distancia_horizontal_m:.0f}m, Tilt: {sonar_tilt_deg}°, HazProf: [{prof_detectada_sup_haz:.1f}-{prof_detectada_inf_haz:.1f}]m, CardProf: [{prof_cardumen_sup}-{prof_cardumen_inf}]m, Cob: {factor_cobertura_vertical:.2f}")
+
+    return distancia_horizontal_m, marcacion_relativa_deg, factor_cobertura_vertical, en_haz_horizontal
 
 # Text string definitions (already added in previous step, kept for completeness)
 texto_latitud = "LAT / LON "
@@ -2068,24 +2333,74 @@ while not hecho:
         sweep_increment_ppf = sweep_pixels_per_second / FPS
     
     # --- Sonar Sweep Animation Logic ---
-    if menu_options_values["transmision"] == "ON":
-        current_sweep_radius_pixels += sweep_increment_ppf
-        if current_sweep_radius_pixels > display_radius_pixels:
-            current_sweep_radius_pixels = 0 # Reset sweep
-            if sonar_ping_sound: # Play sound if loaded successfully
-                sonar_ping_sound.play()
-    else:
-        # If transmission is OFF, we can choose to reset the sweep
-        # or leave it at its current position. Resetting is cleaner.
-        current_sweep_radius_pixels = 0
-        # Ensure sound is stopped if it was somehow playing or cued
-        if sonar_ping_sound and pygame.mixer.get_busy(): # Check if any channel is busy
-            sonar_ping_sound.stop() # Stop the specific sound if it's playing
-            # Alternatively, stop all sounds: pygame.mixer.stop()
-            # but stopping the specific sound is more targeted.
-
+    current_sweep_radius_pixels += sweep_increment_ppf
+    if current_sweep_radius_pixels > display_radius_pixels:
+        current_sweep_radius_pixels = 0 # Reset sweep
+        if sonar_ping_sound: # Play sound if loaded successfully
+            sonar_ping_sound.play()
     # --- End Sonar Sweep Animation Logic ---
     # --- End Sonar Sweep Parameter Calculation ---
+
+    # --- Actualizar Movimiento del Cardumen ---
+    delta_tiempo_frame_seg = reloj.get_time() / 1000.0 # Tiempo desde el último frame en segundos
+    if cardumen_simulado:
+        cardumen_simulado.mover(delta_tiempo_frame_seg)
+        # print(f"Pos cardumen: ({cardumen_simulado.lat:.4f}, {cardumen_simulado.lon:.4f})") # Descomentar para depuración frecuente
+    # --- Fin Actualizar Movimiento del Cardumen ---
+
+    # --- Lógica de Intersección Haz-Cardumen ---
+    dist_cardumen_m = 0
+    marc_rel_cardumen_deg = 0
+    cobertura_cardumen_vertical = 0.0 # Renombrado para claridad
+    cardumen_en_sector_horizontal = False # Renombrado para claridad
+
+    if cardumen_simulado:
+        # Usar la posición actual del barco (si hay NMEA) o la simulada para los cálculos de detección
+        barco_lat_actual_para_deteccion = current_ship_lat_deg if current_ship_lat_deg is not None else lat_barco_simulada
+        barco_lon_actual_para_deteccion = current_ship_lon_deg if current_ship_lon_deg is not None else lon_barco_simulada
+        
+        dist_cardumen_m, marc_rel_cardumen_deg, cobertura_cardumen_vertical, cardumen_en_sector_horizontal = \
+            calcular_interseccion_haz_cardumen(
+                barco_lat_actual_para_deteccion, barco_lon_actual_para_deteccion, current_ship_heading,
+                cardumen_simulado,
+                current_tilt_angle, # Tilt actual del sonar
+                15.0  # Apertura vertical del haz en grados (15° total)
+            )
+        
+        # Descomentar para depuración de la detección del cardumen
+        # if cobertura_cardumen_vertical > 0:
+        #    print(f"Cobertura Cardumen: {cobertura_cardumen_vertical:.2f} a {dist_cardumen_m:.0f}m, MarcRel: {marc_rel_cardumen_deg:.0f}°")
+            
+    # --- Fin Lógica de Intersección ---
+
+    # --- Cálculo de Intensidad y Color del Eco del Cardumen ---
+    color_eco_actual = None
+    intensidad_eco_final = 0.0
+
+    if cardumen_simulado and cobertura_cardumen_vertical > 0 and cardumen_en_sector_horizontal:
+        intensidad_eco_final = cobertura_cardumen_vertical * cardumen_simulado.intensidad_base_eco
+        
+        # Atenuación simple por distancia
+        max_rango_para_atenuacion = 1600.0 # Rango máximo considerado para la atenuación total
+        if dist_cardumen_m > 0:
+            # El factor va de 1 (cerca) a ~0.1 (lejos)
+            factor_atenuacion_dist = max(0.1, 1.0 - (dist_cardumen_m / max_rango_para_atenuacion))
+            intensidad_eco_final *= factor_atenuacion_dist
+        
+        intensidad_eco_final = max(0, min(intensidad_eco_final, 1.0)) # Clamp entre 0 y 1
+
+        if intensidad_eco_final > 0.05: # Umbral mínimo para mostrar algo
+            num_colores = len(COLORES_ECO_CARDUMEN_OPACOS)
+            indice_color = int(intensidad_eco_final * (num_colores - 0.001)) # -0.001 para evitar índice fuera si intensidad es 1.0
+            indice_color = min(indice_color, num_colores - 1) 
+            color_eco_actual = COLORES_ECO_CARDUMEN_OPACOS[indice_color]
+            
+            # Debug:
+            # print(f"Dist: {dist_cardumen_m:.0f}m, Tilt: {current_tilt_angle}°, CoberturaVert: {cobertura_cardumen_vertical:.2f}, IntensidadEco: {intensidad_eco_final:.2f}, IndiceColor: {indice_color}, Color: {color_eco_actual}")
+        # else:
+            # print(f"Eco cardumen demasiado débil: {intensidad_eco_final:.2f} (Cobertura: {cobertura_cardumen_vertical:.2f})")
+
+    # --- Fin Cálculo de Intensidad y Color ---
 
     for evento in pygame.event.get():  # El usuario hizo algo
         if evento.type == pygame.QUIT: # Si el usuario hace click sobre cerrar
@@ -3050,6 +3365,27 @@ while not hecho:
                     s_max_for_track_draw, current_unit, current_colors["SHIP_TRACK"])
     # --- End Draw Ship Track ---
 
+    # --- Dibujar Eco del Cardumen ---
+    if cardumen_simulado and color_eco_actual: # color_eco_actual ya implica cobertura > umbral
+        # Necesitamos el S_max actual en la unidad de display para la función de dibujo
+        s_max_display_actual = range_presets_map[current_unit][current_range_index]
+
+         # Dentro del bucle principal, donde llamas a dibujar_eco_cardumen:
+        dibujar_eco_cardumen(
+            pantalla,
+            circle_center_x, circle_center_y, display_radius_pixels,
+            s_max_display_actual, 
+            dist_cardumen_m,
+            marc_rel_cardumen_deg,
+            color_eco_actual,
+            cobertura_cardumen_vertical,
+            current_unit,
+            cardumen_simulado # Argumento nuevo añadido
+        )
+
+
+    # --- Fin Dibujar Eco del Cardumen ---
+
     # --- Temporary Tilt Display on Sonar Circle (Proa) ---
     if show_tilt_temporarily:
         temp_tilt_text_str = f"T {current_tilt_angle}°" 
@@ -3483,4 +3819,5 @@ while not hecho:
 if serial_port_available and ser is not None:
     ser.close()
 pygame.quit()
+
 
