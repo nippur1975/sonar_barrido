@@ -1,6 +1,7 @@
 # Importamos las bibliotecas pygame y math
 import pygame
 import math
+import numpy as np # Importar NumPy
 import os # Needed for path manipulation
 import serial # Already present
 import serial.tools.list_ports # For COM port detection
@@ -1815,6 +1816,478 @@ def draw_center_icon(surface, center_x, center_y, total_height, color):
     ]
     pygame.draw.polygon(surface, color, tri_points, 5) # Thickness 5
 
+# --- Clase Cardumen ---
+class Cardumen:
+    def __init__(self, lat_inicial, lon_inicial, profundidad_centro_inicial_m,
+                 velocidad_nudos, curso_grados,
+                 radio_horizontal_m, profundidad_superior_m, profundidad_inferior_m,
+                 reflectividad_base=0.95):
+        self.lat = lat_inicial  # Grados decimales
+        self.lon = lon_inicial  # Grados decimales
+        # Profundidad del CENTRO del cilindro del cardumen respecto a la superficie.
+        # Si el cardumen va de 40m a 100m, su centro está a (40+100)/2 = 70m.
+        # Y su altura total es 60m.
+        self.profundidad_centro = profundidad_centro_inicial_m
+
+        self.velocidad_mps = velocidad_nudos * 0.514444  # Nudos a m/s
+        self.curso_rad = math.radians(curso_grados)  # Curso en radianes para cálculos
+
+        self.radio_horizontal = radio_horizontal_m
+        self.profundidad_superior = profundidad_superior_m
+        self.profundidad_inferior = profundidad_inferior_m
+        self.altura_total = self.profundidad_inferior - self.profundidad_superior
+
+        self.reflectividad_base = reflectividad_base
+
+        # Para movimiento sin NMEA (simulado en un plano XY)
+        # Coordenadas relativas al punto de inicio del barco (0,0) en un plano donde +Y es Norte.
+        # El cardumen se inicializa a 600m en la proa (que se asume Norte si no hay NMEA).
+        # Por lo tanto, y_sim es la distancia en metros hacia el Norte.
+        # x_sim es la distancia en metros hacia el Este.
+        # Si proa es 0 deg (Norte), cardumen a 600m en proa: x_sim=0, y_sim=600.
+        self.x_sim = 0  # Será ajustado para estar en la proa después de la creación
+        self.y_sim = 0  # Será ajustado para estar en la proa después de la creación
+
+
+    def actualizar_posicion(self, delta_tiempo_s, datos_nmea_disponibles=False):
+        distancia_movimiento = self.velocidad_mps * delta_tiempo_s
+
+        if datos_nmea_disponibles:
+            # Movimiento geográfico real
+            start_point = Point(latitude=self.lat, longitude=self.lon)
+            # El bearing para geopy.distance.destination es en grados
+            destination = geodesic(meters=distancia_movimiento).destination(point=start_point, bearing=math.degrees(self.curso_rad))
+            self.lat = destination.latitude
+            self.lon = destination.longitude
+        else:
+            # Movimiento simplificado en un plano XY relativo a un barco estático en (0,0)
+            # El curso del cardumen (self.curso_rad) es absoluto (0 rad = Norte, PI/2 rad = Este)
+            dx_cardumen = distancia_movimiento * math.sin(self.curso_rad) # Componente Este
+            dy_cardumen = distancia_movimiento * math.cos(self.curso_rad) # Componente Norte
+
+            self.x_sim += dx_cardumen
+            self.y_sim += dy_cardumen
+
+
+    def get_posicion_relativa_barco(self, barco_lat, barco_lon, barco_rumbo_deg, datos_nmea_disponibles=True):
+        """
+        Calcula la distancia horizontal, rumbo verdadero al cardumen desde el barco,
+        y rumbo relativo al cardumen desde la proa del barco.
+        """
+        if datos_nmea_disponibles:
+            if barco_lat is None or barco_lon is None: # Si NMEA está "disponible" pero no hay fix
+                # Comportamiento como si NMEA no estuviera disponible para este cálculo
+                return self._get_posicion_relativa_sin_nmea()
+
+            punto_barco = Point(latitude=barco_lat, longitude=barco_lon)
+            punto_cardumen = Point(latitude=self.lat, longitude=self.lon)
+
+            dist_horizontal_m = geodesic(punto_barco, punto_cardumen).meters
+
+            delta_lon_rad = math.radians(self.lon - barco_lon)
+            lat_barco_rad = math.radians(barco_lat)
+            lat_cardumen_rad = math.radians(self.lat)
+
+            y_brg = math.sin(delta_lon_rad) * math.cos(lat_cardumen_rad)
+            x_brg = math.cos(lat_barco_rad) * math.sin(lat_cardumen_rad) - \
+                    math.sin(lat_barco_rad) * math.cos(lat_cardumen_rad) * math.cos(delta_lon_rad)
+            
+            rumbo_verdadero_a_cardumen_rad = math.atan2(y_brg, x_brg)
+            rumbo_verdadero_a_cardumen_deg = (math.degrees(rumbo_verdadero_a_cardumen_rad) + 360) % 360
+            
+            rumbo_relativo_a_cardumen_deg = (rumbo_verdadero_a_cardumen_deg - barco_rumbo_deg + 360) % 360
+            
+            return {
+                "dist_horizontal_m": dist_horizontal_m,
+                "rumbo_verdadero_deg": rumbo_verdadero_a_cardumen_deg,
+                "rumbo_relativo_deg": rumbo_relativo_a_cardumen_deg,
+                "profundidad_centro_m": self.profundidad_centro,
+                "profundidad_superior_m": self.profundidad_superior,
+                "profundidad_inferior_m": self.profundidad_inferior,
+                "radio_horizontal_m": self.radio_horizontal
+            }
+        else: # NMEA no disponible, usar simulación XY
+            return self._get_posicion_relativa_sin_nmea()
+
+    def _get_posicion_relativa_sin_nmea(self):
+        # Barco en (0,0), rumbo 0° (Norte) en el plano simulado. Proa es +Y en pantalla.
+        # Cardumen está en (self.x_sim, self.y_sim) en este plano (Norte es +Y, Este es +X).
+        dist_horizontal_m = math.sqrt(self.x_sim**2 + self.y_sim**2)
+        
+        # Rumbo verdadero al cardumen: ángulo de (0,0) a (x_sim, y_sim)
+        # atan2(dx, dy) donde dx es Este (+X), dy es Norte (+Y).
+        rumbo_verdadero_a_cardumen_rad = math.atan2(self.x_sim, self.y_sim)
+        rumbo_verdadero_a_cardumen_deg = (math.degrees(rumbo_verdadero_a_cardumen_rad) + 360) % 360
+        
+        # Barco simulado con rumbo 0° (Norte).
+        # Rumbo relativo es el mismo que el rumbo verdadero en este caso.
+        rumbo_relativo_a_cardumen_deg = rumbo_verdadero_a_cardumen_deg
+            
+        return {
+            "dist_horizontal_m": dist_horizontal_m,
+            "rumbo_verdadero_deg": rumbo_verdadero_a_cardumen_deg,
+            "rumbo_relativo_deg": rumbo_relativo_a_cardumen_deg, # Relativo a la proa (que es Norte)
+            "profundidad_centro_m": self.profundidad_centro,
+            "profundidad_superior_m": self.profundidad_superior,
+            "profundidad_inferior_m": self.profundidad_inferior,
+            "radio_horizontal_m": self.radio_horizontal
+        }
+
+# --- Fin Clase Cardumen ---
+
+# --- Lógica de Intersección Sonar-Cardumen ---
+def calcular_interseccion_sonar_cardumen(pos_rel_cardumen, tilt_deg, apertura_haz_vertical_deg, max_rango_sonar_m):
+    """
+    Calcula cómo el haz del sonar intersecta con el cardumen.
+    Retorna un diccionario con parámetros de la intersección para el renderizado.
+    
+    pos_rel_cardumen: Diccionario de get_posicion_relativa_barco.
+    tilt_deg: Ángulo de inclinación del haz del sonar (grados). 0 es horizontal. Positivo es hacia abajo.
+    apertura_haz_vertical_deg: Apertura total vertical del haz del sonar (ej. 15 grados).
+    max_rango_sonar_m: Alcance máximo actual del sonar en metros.
+    """
+    dist_h = pos_rel_cardumen["dist_horizontal_m"]
+    if dist_h == 0: # Evitar división por cero si el cardumen está directamente debajo
+        dist_h = 1e-6 
+
+    cardumen_prof_sup = pos_rel_cardumen["profundidad_superior_m"]
+    cardumen_prof_inf = pos_rel_cardumen["profundidad_inferior_m"]
+    cardumen_radio_h = pos_rel_cardumen["radio_horizontal_m"]
+
+    # Convertir ángulos a radianes
+    tilt_rad = math.radians(tilt_deg)
+    media_apertura_haz_rad = math.radians(apertura_haz_vertical_deg / 2.0)
+
+    # Límites angulares superior e inferior del haz del sonar en el plano vertical
+    angulo_superior_haz_rad = tilt_rad - media_apertura_haz_rad
+    angulo_inferior_haz_rad = tilt_rad + media_apertura_haz_rad
+
+    # Profundidades que el haz del sonar cubre a la distancia horizontal del cardumen
+    prof_sup_haz_en_dist_h = dist_h * math.tan(angulo_superior_haz_rad)
+    prof_inf_haz_en_dist_h = dist_h * math.tan(angulo_inferior_haz_rad)
+    
+    # Asegurarse de que sup < inf si el haz es muy ancho o el tilt es extremo
+    if prof_sup_haz_en_dist_h > prof_inf_haz_en_dist_h:
+        prof_sup_haz_en_dist_h, prof_inf_haz_en_dist_h = prof_inf_haz_en_dist_h, prof_sup_haz_en_dist_h
+
+    # Determinar el solapamiento vertical entre el haz y el cardumen
+    solapamiento_vertical_sup = max(cardumen_prof_sup, prof_sup_haz_en_dist_h)
+    solapamiento_vertical_inf = min(cardumen_prof_inf, prof_inf_haz_en_dist_h)
+    
+    altura_solapamiento_m = solapamiento_vertical_inf - solapamiento_vertical_sup
+
+    if altura_solapamiento_m <= 0:
+        return {"intensidad_factor": 0} # No hay solapamiento vertical
+
+    # Calcular la "fuerza" del eco basado en el solapamiento vertical
+    # Factor simple: proporción de la altura del cardumen que está iluminada
+    # Se podría mejorar considerando la distribución de energía dentro del haz (gaussiana)
+    factor_solapamiento_vertical = min(altura_solapamiento_m / (cardumen_prof_inf - cardumen_prof_sup), 1.0)
+    
+    # Calcular distancia inclinada (slant range) al centro del área de solapamiento
+    profundidad_centro_solapamiento = (solapamiento_vertical_sup + solapamiento_vertical_inf) / 2.0
+    dist_slant_centro_solapamiento = math.sqrt(dist_h**2 + profundidad_centro_solapamiento**2)
+
+    if dist_slant_centro_solapamiento > max_rango_sonar_m :
+        return {"intensidad_factor": 0} # El centro del solapamiento está fuera de rango
+
+    # Atenuación por distancia (similar al ejemplo, pero usando slant range)
+    # Usaremos una atenuación más simple por ahora, luego se puede ajustar
+    # factor_atenuacion_distancia = np.exp(-dist_slant_centro_solapamiento / max_rango_sonar_m) # Exponencial
+    # Una más simple: (1 - dist/max_dist)^2
+    factor_atenuacion_distancia = (1.0 - (dist_slant_centro_solapamiento / max_rango_sonar_m))**2
+    if dist_slant_centro_solapamiento > max_rango_sonar_m : factor_atenuacion_distancia = 0
+    if dist_slant_centro_solapamiento == 0 : factor_atenuacion_distancia = 1 # Evitar div por cero si está justo en el origen
+
+
+    # Calcular la anchura angular que el cardumen (su radio horizontal) subtiende en la pantalla
+    # a la distancia horizontal dist_h. Esto es para la visualización en el PPI.
+    if dist_h < cardumen_radio_h: # Si el barco está "dentro" del radio horizontal del cardumen
+        media_anchura_angular_subtendida_rad = math.pi # Se vería en todas direcciones horizontales
+    else:
+        media_anchura_angular_subtendida_rad = math.atan(cardumen_radio_h / dist_h)
+        # Esto es la mitad del ángulo, el total sería 2 * esto.
+
+    # La "longitud" radial de la mancha en pantalla.
+    # Podría ser la proyección de la altura del solapamiento en el slant range,
+    # o una fracción del radio horizontal del cardumen.
+    # Por ahora, usemos una fracción del radio, o un valor fijo.
+    # O mejor, la proyección de la "profundidad" del cardumen a lo largo del haz
+    # Distancia inclinada al tope del solapamiento y al fondo del solapamiento
+    dist_slant_sup_solapamiento = math.sqrt(dist_h**2 + solapamiento_vertical_sup**2)
+    dist_slant_inf_solapamiento = math.sqrt(dist_h**2 + solapamiento_vertical_inf**2)
+    
+    longitud_radial_mancha_m = abs(dist_slant_inf_solapamiento - dist_slant_sup_solapamiento)
+    
+    # Si el cardumen está muy cerca, la longitud radial podría ser grande.
+    # Limitarla por el propio radio del cardumen también.
+    longitud_radial_mancha_m = min(longitud_radial_mancha_m, cardumen_radio_h * 2)
+
+
+    # Intensidad final combinada
+    # El factor de "200tn" se considera en cardumen.reflectividad_base
+    intensidad_final = factor_solapamiento_vertical * factor_atenuacion_distancia
+
+    return {
+        "intensidad_factor": max(0, min(intensidad_final, 1.0)), # Clamp entre 0 y 1
+        "dist_slant_m": dist_slant_centro_solapamiento, # Distancia inclinada al centro del eco
+        "rumbo_relativo_deg": pos_rel_cardumen["rumbo_relativo_deg"], # Rumbo para colocarlo en PPI
+        "media_anchura_angular_rad": media_anchura_angular_subtendida_rad, # Para el ancho de la mancha en PPI
+        "longitud_radial_m": longitud_radial_mancha_m # Para la "profundidad" de la mancha en PPI
+    }
+
+# --- Fin Lógica de Intersección ---
+
+# --- Cálculo de Matriz de Intensidad del Eco (Conceptual) ---
+# Esta función es más conceptual. En lugar de generar una matriz densa como Z,
+# la idea es que `calcular_interseccion_sonar_cardumen` ya nos da los parámetros
+# clave (intensidad, posición central, extensión angular y radial)
+# que usaremos directamente en la función de dibujo para generar la "mancha".
+# No generaremos una matriz Z explícita para evitar sobrecarga, a menos que
+# la función de dibujo demuestre necesitarla para un efecto muy específico.
+
+# Por lo tanto, este paso del plan se fusiona en espíritu con el paso de renderizado.
+# La "matriz de intensidad" será implícita en los parámetros devueltos por
+# `calcular_interseccion_sonar_cardumen` y cómo se usan para dibujar.
+# --- Fin Cálculo de Matriz de Intensidad ---
+
+# --- Renderizado del Eco del Cardumen ---
+def dibujar_eco_cardumen(surface, info_interseccion,
+                         sonar_centro_x, sonar_centro_y,
+                         sonar_radio_pixels, max_rango_sonar_en_metros,
+                         current_gain, # Nuevo parámetro para la ganancia
+                         color_base_rgb=(139, 0, 0)): # DarkRed como base
+    """
+    Dibuja el eco del cardumen en la pantalla del sonar.
+    info_interseccion: Diccionario devuelto por calcular_interseccion_sonar_cardumen.
+    sonar_radio_pixels: Radio en píxeles del display del sonar.
+    max_rango_sonar_en_metros: Rango máximo actual del sonar CONVERTIDO A METROS.
+    color_base_rgb: Color base para la máxima intensidad.
+    """
+    if not info_interseccion or info_interseccion.get("intensidad_factor", 0) <= 1e-3: # Umbral pequeño
+        return
+
+    intensidad = info_interseccion["intensidad_factor"]
+    dist_slant_m = info_interseccion["dist_slant_m"]
+    rumbo_rel_deg = info_interseccion["rumbo_relativo_deg"]
+    media_anchura_angular_rad = info_interseccion["media_anchura_angular_rad"]
+    longitud_radial_m = info_interseccion["longitud_radial_m"]
+
+    if max_rango_sonar_en_metros <= 0: return # Evitar división por cero
+
+    pixel_por_metro = sonar_radio_pixels / max_rango_sonar_en_metros
+
+    dist_slant_pixels = dist_slant_m * pixel_por_metro
+    
+    # Si la distancia en píxeles excede el radio del sonar (más un pequeño margen), no dibujar.
+    # Esto actúa como un primer nivel de clipping.
+    if dist_slant_pixels > sonar_radio_pixels + 10: # 10px de margen
+        return
+
+    longitud_radial_pixels = longitud_radial_m * pixel_por_metro
+    # Ajuste para hacer el eco más grueso radialmente:
+    # Aumentamos el mínimo, multiplicamos el valor base y aumentamos el cap relativo al radio.
+    longitud_radial_pixels_base = max(8, min(longitud_radial_pixels * 1.5, sonar_radio_pixels * 0.4))
+
+    # El ancho de la "mancha" en píxeles a la distancia del eco (cálculo base).
+    # Usamos la media anchura angular * 2 para el ancho total del arco.
+    ancho_arco_pixels_base = 2 * dist_slant_pixels * math.tan(media_anchura_angular_rad)
+    ancho_arco_pixels_base = max(5, min(ancho_arco_pixels_base, sonar_radio_pixels * 0.4)) # Limitar
+
+    # Ajuste de tamaño por ganancia
+    # Cada 0.5 de ganancia añade 0.5px, entonces 1.0 de ganancia añade 1.0px
+    aumento_px_por_ganancia = current_gain 
+
+    ancho_arco_pixels = ancho_arco_pixels_base + aumento_px_por_ganancia
+    longitud_radial_pixels = longitud_radial_pixels_base + aumento_px_por_ganancia
+
+    # Asegurar dimensiones mínimas después del ajuste de ganancia
+    ancho_arco_pixels = max(1, ancho_arco_pixels) # Mínimo 1px
+    longitud_radial_pixels = max(1, longitud_radial_pixels) # Mínimo 1px
+
+
+    # Ajuste para mayor intensidad del eco principal rojizo/marrón
+    # Color base (marrón rojizo oscuro): (100, 20, 20) o un marrón más puro (139,69,19) - SaddleBrown
+    # color_base_rgb está como (139,0,0) - DarkRed. Vamos a hacerlo más marrón.
+    # Nuevo color base para el cuerpo del eco, cambiado a DarkRed según solicitud:
+    cuerpo_eco_color_base_rgb = (139, 0, 0) # DarkRed
+
+    # La intensidad modula principalmente el alfa y ligeramente el brillo.
+    # Alfa máximo más alto para el cuerpo del eco.
+    # Alfa mínimo más bajo para que se desvanezca más.
+    # alpha_min_cuerpo = 150  # Aumentado desde 30 para mayor opacidad base
+    # alpha_max_cuerpo = 255 # Alfa máximo es 255
+    # current_alpha_cuerpo = int(alpha_min_cuerpo * (1-intensidad) + alpha_max_cuerpo * intensidad)
+    
+    # Hacer el cuerpo del eco completamente opaco si es visible
+    current_alpha_cuerpo = 255
+    
+    # El color del cuerpo principal ahora interpola menos hacia un color claro,
+    # manteniendo más del color base y usando alfa para la intensidad.
+    # Opcional: Interpolar ligeramente hacia negro para "oscurecer" con baja intensidad, además del alfa.
+    factor_brillo = 0.6 + 0.4 * intensidad # Interpola brillo entre 0.6 y 1.0
+    
+    final_r = int(cuerpo_eco_color_base_rgb[0] * factor_brillo)
+    final_g = int(cuerpo_eco_color_base_rgb[1] * factor_brillo)
+    final_b = int(cuerpo_eco_color_base_rgb[2] * factor_brillo)
+    final_color_cuerpo_con_alfa = (final_r, final_g, final_b, current_alpha_cuerpo)
+
+
+    # color_min_intensidad_rgb = (205, 133, 63, 50) # Peru (marrón claro) con alfa bajo # NO USADO DIRECTAMENTE ASÍ
+    # color_max_intensidad_rgb = (*color_base_rgb, 220) # Color base con alfa alto # NO USADO ASÍ
+
+    # final_g = int(color_min_intensidad_rgb[1] * (1-intensidad) + color_max_intensidad_rgb[1] * intensidad) # Mantengo esta línea comentada como referencia de la lógica anterior
+    # final_b = int(color_min_intensidad_rgb[2] * (1-intensidad) + color_max_intensidad_rgb[2] * intensidad) # Mantengo esta línea comentada
+    # final_a = int(color_min_intensidad_rgb[3] * (1-intensidad) + color_max_intensidad_rgb[3] * intensidad) # Mantengo esta línea comentada
+    # final_color_con_alfa = (final_r, final_g, final_b, final_a) # Esta variable ahora es final_color_cuerpo_con_alfa
+
+    angulo_dibujo_rad = math.radians(rumbo_rel_deg - 90) # -90 para Pygame (0 arriba)
+
+    # El ancho de la "mancha" en píxeles a la distancia del eco.
+    # Usamos la media anchura angular * 2 para el ancho total del arco.
+    ancho_arco_pixels = 2 * dist_slant_pixels * math.tan(media_anchura_angular_rad)
+    ancho_arco_pixels = max(5, min(ancho_arco_pixels, sonar_radio_pixels * 0.4)) # Limitar
+
+    # Crear una superficie temporal para dibujar el eco.
+    # El tamaño debe ser suficiente para la mancha.
+    # Usaremos un rectángulo que envuelva el sector del arco.
+    # La "profundidad" del arco es longitud_radial_pixels.
+    # El radio exterior del arco es dist_slant_pixels + longitud_radial_pixels/2
+    # El radio interior es dist_slant_pixels - longitud_radial_pixels/2
+    
+    # Para simplificar, dibujaremos una elipse rotada y la blitearemos.
+    # La elipse tendrá dimensiones: ancho_arco_pixels y longitud_radial_pixels.
+    
+    # Tamaño de la superficie temporal para la elipse
+    srf_size = int(max(ancho_arco_pixels, longitud_radial_pixels) * 1.5) # Margen
+    if srf_size < 1: srf_size = 1 # Mínimo 1x1
+    eco_srf = pygame.Surface((srf_size, srf_size), pygame.SRCALPHA)
+    eco_srf.fill((0,0,0,0)) # Transparente
+
+    # Rect de la elipse en la superficie temporal (centrada)
+    rect_x = int((srf_size - ancho_arco_pixels) / 2.0)
+    rect_y = int((srf_size - longitud_radial_pixels) / 2.0)
+    rect_w = int(ancho_arco_pixels)
+    rect_h = int(longitud_radial_pixels)
+
+    if rect_w <= 0: rect_w = 1
+    if rect_h <= 0: rect_h = 1
+    
+    ellipse_rect_local = pygame.Rect(rect_x, rect_y, rect_w, rect_h)
+    # Dibujar el cuerpo principal del eco
+    pygame.draw.ellipse(eco_srf, final_color_cuerpo_con_alfa, ellipse_rect_local)
+
+    # --- Dibujar Bordes Multicolores ---
+    # Los bordes se dibujarán concéntricamente alrededor de la elipse principal.
+    # Cada borde será ligeramente más grande y con un color diferente.
+    # La intensidad de los bordes también se modula por `intensidad`, pero quizás menos.
+    
+    # borde_alpha = int(100 + 155 * intensidad) # Alfa base para los bordes, entre 100 y 255
+    # borde_alpha = max(0, min(borde_alpha, 255))
+    # Hacer los bordes completamente opacos
+    borde_alpha = 255
+
+    colores_borde = [
+        (0, 255, 0, borde_alpha),   # Verde
+        (255, 255, 0, borde_alpha), # Amarillo
+        (255, 0, 0, borde_alpha)    # Rojo
+    ]
+    
+    # Incremento de tamaño para cada capa de borde (en píxeles en cada lado)
+    # Haremos los bordes como contornos, no rellenos, para que se superpongan bien.
+    # El grosor del contorno.
+    grosor_contorno_borde = 2 # Grosor fijo de 2px para cada banda de color
+    
+    # El tamaño de la elipse para los bordes debe ser progresivamente mayor.
+    # Empezamos desde el tamaño de la elipse del cuerpo y lo expandimos.
+    # Borde Rojo (más interno de los bordes)
+    # Borde Amarillo
+    # Borde Verde (más externo de los bordes)
+
+    # Para dibujar contornos, necesitamos el rect de la elipse.
+    # Pygame.draw.ellipse(surface, color, rect, width) -> width es el grosor del contorno.
+    # El contorno se dibuja DENTRO del rect.
+
+    # Borde Rojo (2px)
+    # El rect para el borde rojo debe ser más grande que el cuerpo para que el contorno quede afuera.
+    # Si el cuerpo es ellipse_rect_local, el rect para el contorno rojo necesita ser
+    # ellipse_rect_local.width + 2*grosor_contorno_borde de ancho, centrado.
+    # El primer contorno (rojo) debe rodear el cuerpo.
+    rect_borde_rojo = ellipse_rect_local.inflate(grosor_contorno_borde * 2, grosor_contorno_borde * 2)
+    pygame.draw.ellipse(eco_srf, colores_borde[2], rect_borde_rojo, grosor_contorno_borde)
+
+    # Borde Amarillo (2px), fuera del rojo
+    # El rect para el borde amarillo debe ser más grande que el rect_borde_rojo
+    rect_borde_amarillo = rect_borde_rojo.inflate(grosor_contorno_borde * 2, grosor_contorno_borde * 2)
+    pygame.draw.ellipse(eco_srf, colores_borde[1], rect_borde_amarillo, grosor_contorno_borde)
+    
+    # Borde Verde (2px), fuera del amarillo
+    rect_borde_verde = rect_borde_amarillo.inflate(grosor_contorno_borde * 2, grosor_contorno_borde * 2)
+    pygame.draw.ellipse(eco_srf, colores_borde[0], rect_borde_verde, grosor_contorno_borde)
+    # --- Fin Dibujar Bordes Multicolores ---
+
+    # Ajustar srf_size si los bordes expandidos lo requieren.
+    # Esto es un poco tardío, idealmente srf_size se calcularía desde el principio
+    # para acomodar el rect_borde_verde. Por ahora, asumimos que el * 1.5 original es suficiente.
+    # Si hay problemas de clipping de los bordes en la eco_srf, habrá que revisar esto.
+
+    # Rotar la superficie del eco
+    # El ángulo de rotación en pygame es antihorario.
+    # Nuestro angulo_dibujo_rad ya está en el sistema de coordenadas de Pygame (0 Este, -PI/2 Norte)
+    # Queremos que el "largo" de la elipse (longitud_radial_pixels) se alinee con la dirección radial.
+    # Y el "ancho" (ancho_arco_pixels) sea perpendicular a esto.
+    # La rotación necesaria es el ángulo del centro del eco.
+    
+    # El ángulo para rotar la superficie de la elipse para que su "ancho" (ancho_arco_pixels)
+    # sea tangencial y su "largo" (longitud_radial_pixels) sea radial.
+    # Si la elipse se dibuja con ancho = ancho_arco_pixels y alto = longitud_radial_pixels,
+    # y la superficie no rotada tiene el "alto" alineado con el eje Y local,
+    # entonces necesitamos rotarla por angulo_dibujo_rad (convertido a grados) + 90 grados
+    # para que el "alto" (radial) apunte en la dirección correcta.
+    
+    # angulo_dibujo_rad: 0 es Este. -PI/2 es Norte.
+    # Pygame.transform.rotate usa grados, positivo es anti-horario.
+    # Queremos que el eje Y local de la elipse (su "altura" o longitud_radial_pixels)
+    # se alinee con angulo_dibujo_rad.
+    # angulo_dibujo_rad: 0 es Este. -PI/2 es Norte.
+    # Pygame.transform.rotate usa grados, positivo es anti-horario.
+    # La elipse en eco_srf está dibujada con 'longitud_radial_pixels' como su altura (eje Y local)
+    # y 'ancho_arco_pixels' como su ancho (eje X local).
+    # Para que la 'longitud_radial_pixels' (altura local) se alinee con la dirección radial dada por
+    # angulo_dibujo_rad, la superficie debe ser rotada de tal manera que su eje Y local
+    # apunte en la dirección de angulo_dibujo_rad.
+    # Si angulo_dibujo_rad es 0 (Este), el eje Y local debe apuntar al Este.
+    # La rotación en pygame es antihoraria. Si el eje Y local es "arriba" (0,-1), para que apunte al Este (1,0)
+    # necesitaríamos una rotación de -90 grados.
+    # Entonces, la rotación total es -math.degrees(angulo_dibujo_rad) - 90.
+    # O si el eje X local (ancho) debe ser tangencial:
+    rot_degrees = -math.degrees(angulo_dibujo_rad) - 90 # Ajuste de -90 grados
+
+    eco_rot_srf = pygame.transform.rotate(eco_srf, rot_degrees)
+    
+    # Posición del centro del eco en la pantalla principal
+    centro_mancha_x = sonar_centro_x + dist_slant_pixels * math.cos(angulo_dibujo_rad)
+    centro_mancha_y = sonar_centro_y + dist_slant_pixels * math.sin(angulo_dibujo_rad)
+    
+    eco_rot_rect = eco_rot_srf.get_rect(center=(centro_mancha_x, centro_mancha_y))
+
+    # Blitting con clipping manual (simple)
+    # Solo blitear si el centro de la mancha está dentro del círculo del sonar
+    # Una forma más robusta implicaría crear una máscara para el círculo del sonar.
+    dist_centro_mancha_al_origen_sonar = math.sqrt((centro_mancha_x - sonar_centro_x)**2 + (centro_mancha_y - sonar_centro_y)**2)
+    
+    if dist_centro_mancha_al_origen_sonar < sonar_radio_pixels + max(ancho_arco_pixels, longitud_radial_pixels)/2 : # Un poco de margen
+        # Para un clipping más exacto al círculo del sonar:
+        # 1. Crear una máscara del círculo del sonar.
+        # 2. Blitear `eco_rot_srf` sobre una superficie temporal que tenga la máscara del sonar aplicada.
+        # Esto es más complejo. Por ahora, un blit directo si está "más o menos" dentro.
+        
+        # Clipping básico: No dibujar si el rect entero está fuera
+        temp_sonar_circle_rect = pygame.Rect(sonar_centro_x - sonar_radio_pixels, sonar_centro_y - sonar_radio_pixels, 2*sonar_radio_pixels, 2*sonar_radio_pixels)
+        if temp_sonar_circle_rect.colliderect(eco_rot_rect):
+             surface.blit(eco_rot_srf, eco_rot_rect)
+
+# --- Fin Renderizado del Eco del Cardumen ---
 
 def draw_dotted_ellipse(surface, color, rect, dot_radius, spacing_angle):
     """Draws a dotted ellipse."""
@@ -1895,6 +2368,43 @@ angulo = 0
 # Declared global earlier, but ensuring it's clear it's used here.
 # interactive_menu_item_rects = {} # This is now initialized inside the menu drawing block
 global_menu_panel_rect = None # Initialize here, before the main loop
+
+# --- Inicialización del Cardumen ---
+# Parámetros iniciales del cardumen
+# Lat/Lon iniciales (si NMEA está disponible, sino se usan x_sim, y_sim)
+# Para un barco en lat=0, lon=0, y el cardumen en la proa a 600m,
+# si la proa es Norte (0°), el cardumen estaría en lat_cardumen_inicial, lon=0.
+# geopy puede calcular esto: Point(0,0).destination(meters=600, bearing=0)
+# Por ahora, si no hay NMEA, la posición geográfica no se usa activamente para el movimiento.
+# Usaremos una lat/lon placeholder y nos centraremos en x_sim, y_sim.
+lat_cardumen_placeholder = 0.0
+lon_cardumen_placeholder = 0.0
+
+# Profundidad centro: 40m (sup) + 60m (altura) / 2 = 70m desde superficie.
+profundidad_centro_cardumen_m = 70
+velocidad_cardumen_nudos = 4
+curso_cardumen_grados = 190
+radio_hor_cardumen_m = 200 / 2 # Diámetro 200m
+prof_sup_cardumen_m = 40
+prof_inf_cardumen_m = 100
+
+cardumen_simulado = Cardumen(
+    lat_inicial=lat_cardumen_placeholder,
+    lon_inicial=lon_cardumen_placeholder,
+    profundidad_centro_inicial_m=profundidad_centro_cardumen_m,
+    velocidad_nudos=velocidad_cardumen_nudos,
+    curso_grados=curso_cardumen_grados,
+    radio_horizontal_m=radio_hor_cardumen_m,
+    profundidad_superior_m=prof_sup_cardumen_m,
+    profundidad_inferior_m=prof_inf_cardumen_m
+)
+
+# Posición inicial simulada del cardumen: 600m en proa.
+# En nuestro sistema simulado sin NMEA, proa es +Y (Norte).
+cardumen_simulado.x_sim = 0  # Directamente en proa
+cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
+# --- Fin Inicialización del Cardumen ---
+
 
 while not hecho:
  
@@ -2104,9 +2614,45 @@ while not hecho:
     # --- End Sonar Sweep Animation Logic ---
     # --- End Sonar Sweep Parameter Calculation ---
 
+    # --- Actualización y Lógica del Cardumen ---
+    delta_tiempo_s = reloj.get_time() / 1000.0  # Tiempo desde el último frame en segundos
+    
+    # Determinar si hay datos NMEA válidos para la actualización del cardumen
+    # (current_ship_lat_deg no es None y current_ship_lon_deg no es None)
+    # Y serial_port_available es True.
+    nmea_para_cardumen = serial_port_available and current_ship_lat_deg is not None and current_ship_lon_deg is not None
+
+    cardumen_simulado.actualizar_posicion(delta_tiempo_s, datos_nmea_disponibles=nmea_para_cardumen)
+
+    # Obtener posición relativa del cardumen para la lógica de intersección y dibujo
+    # Usar current_ship_heading (que es 0.0 si no hay NMEA)
+    pos_rel_cardumen = cardumen_simulado.get_posicion_relativa_barco(
+        current_ship_lat_deg, # Puede ser None
+        current_ship_lon_deg, # Puede ser None
+        current_ship_heading, # Es 0.0 si no hay NMEA
+        datos_nmea_disponibles=nmea_para_cardumen
+    )
+
+    # Calcular intersección
+    # Necesitamos el rango máximo del sonar EN METROS
+    max_rango_actual_unidades = range_presets_map[current_unit][current_range_index]
+    max_rango_actual_metros = max_rango_actual_unidades
+    if current_unit == "BRAZAS":
+        max_rango_actual_metros *= 1.8288
+    
+    APERTURA_HAZ_VERTICAL_SONAR_DEG = 15.0 # Como se especificó
+    info_interseccion_cardumen = calcular_interseccion_sonar_cardumen(
+        pos_rel_cardumen,
+        current_tilt_angle, # El tilt actual del sonar
+        APERTURA_HAZ_VERTICAL_SONAR_DEG,
+        max_rango_actual_metros
+    )
+    # --- Fin Actualización y Lógica del Cardumen ---
+
+
     for evento in pygame.event.get():  # El usuario hizo algo
         if evento.type == pygame.QUIT: # Si el usuario hace click sobre cerrar
-            hecho = True               # Marca que ya lo hemos hecho, de forma que abandonamos el bucle
+            hecho = True               # Marca que ya lo hemos hecho, de forma que abandonamos el bucole
         elif evento.type == pygame.VIDEORESIZE:
             dimensiones[0] = evento.w
             dimensiones[1] = evento.h
@@ -3132,9 +3678,23 @@ while not hecho:
             show_gain_temporarily = False
     # --- End Temporary Gain Display ---
 
+    # --- Dibujar Eco del Cardumen ---
+    # (Asegurarse que sonar_centro_x, sonar_centro_y, display_radius_pixels, y max_rango_actual_metros estén definidos y actualizados)
+    if 'info_interseccion_cardumen' in locals() and info_interseccion_cardumen:
+        dibujar_eco_cardumen(
+            pantalla, # La superficie principal donde dibujar
+            info_interseccion_cardumen,
+            circle_center_x, # Centro X del display del sonar
+            circle_center_y, # Centro Y del display del sonar
+            display_radius_pixels, # Radio en píxeles del display del sonar
+            max_rango_actual_metros, # Rango máximo del sonar en METROS
+            current_gain # Pasar la ganancia actual
+        )
+    # --- Fin Dibujar Eco del Cardumen ---
+
     # --- Draw Pop-up Window (if active) ---
     if show_unidades_popup:
-        popup_width = 200 
+        popup_width = 200
         popup_height = 100 
         popup_main_rect.width = popup_width
         popup_main_rect.height = popup_height
@@ -3500,7 +4060,3 @@ while not hecho:
 if serial_port_available and ser is not None:
     ser.close()
 pygame.quit()
-
-
-
-
