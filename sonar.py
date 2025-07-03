@@ -2405,6 +2405,10 @@ cardumen_simulado.x_sim = 0  # Directamente en proa
 cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
+# --- Variables para el Retardo del Sonido del Eco ---
+sound_play_time_cardumen = 0  # Momento en ms (pygame.time.get_ticks()) en que se debe reproducir el sonido del cardumen. 0 si no hay sonido programado.
+sound_triggered_for_cardumen_echo = False # Para evitar múltiples disparos por el mismo eco de cardumen en un barrido.
+# --- Fin Variables para el Retardo del Sonido ---
 
 while not hecho:
  
@@ -2599,18 +2603,17 @@ while not hecho:
         current_sweep_radius_pixels += sweep_increment_ppf
         if current_sweep_radius_pixels > display_radius_pixels:
             current_sweep_radius_pixels = 0 # Reset sweep
-            if sonar_ping_sound: # Play sound if loaded successfully
-                sonar_ping_sound.play()
+            sound_triggered_for_cardumen_echo = False # Permitir nuevo disparo de sonido para el próximo barrido del cardumen
+            if sonar_ping_sound: # Restaurar el sonido original del ciclo de barrido
+                sonar_ping_sound.play() 
     else:
         # If transmission is OFF, we can choose to reset the sweep
         # or leave it at its current position. Resetting is cleaner.
         current_sweep_radius_pixels = 0
         # Ensure sound is stopped if it was somehow playing or cued
-        if sonar_ping_sound and pygame.mixer.get_busy(): # Check if any channel is busy
-            sonar_ping_sound.stop() # Stop the specific sound if it's playing
-            # Alternatively, stop all sounds: pygame.mixer.stop()
-            # but stopping the specific sound is more targeted.
-
+        if sonar_ping_sound and pygame.mixer.get_busy(): 
+            sonar_ping_sound.stop() 
+            
     # --- End Sonar Sweep Animation Logic ---
     # --- End Sonar Sweep Parameter Calculation ---
 
@@ -2648,6 +2651,38 @@ while not hecho:
         max_rango_actual_metros
     )
     # --- Fin Actualización y Lógica del Cardumen ---
+
+    # --- Lógica de Programación y Reproducción del Sonido del Eco con Retardo ---
+    if menu_options_values["transmision"] == "ON" and sonar_ping_sound and \
+       'info_interseccion_cardumen' in locals() and info_interseccion_cardumen and \
+       info_interseccion_cardumen.get("intensidad_factor", 0) > 0.1: # Solo si hay un eco significativo
+
+        dist_eco_m = info_interseccion_cardumen["dist_slant_m"]
+        
+        # Convertir dist_eco_m a píxeles para comparar con current_sweep_radius_pixels
+        # Necesitamos max_rango_actual_metros y display_radius_pixels
+        if max_rango_actual_metros > 0:
+            pixel_por_metro_eco = display_radius_pixels / max_rango_actual_metros
+            dist_eco_pixels = dist_eco_m * pixel_por_metro_eco
+
+            # Comprobar si el barrido visual está "cerca" del eco y el sonido no ha sido disparado aún para este eco en este barrido
+            # Usamos un pequeño umbral para la detección (ej., +/- sweep_increment_ppf)
+            if not sound_triggered_for_cardumen_echo and \
+               abs(current_sweep_radius_pixels - dist_eco_pixels) < (sweep_increment_ppf * 2 + 5) and \
+               current_sweep_radius_pixels <= dist_eco_pixels + sweep_increment_ppf: # Asegura que el barrido no haya pasado mucho más allá
+
+                retardo_ms = (dist_eco_m / SPEED_OF_SOUND_MPS) * 1000
+                sound_play_time_cardumen = pygame.time.get_ticks() + retardo_ms
+                sound_triggered_for_cardumen_echo = True
+                # print(f"Eco CARDUMEN detectado a {dist_eco_m:.2f}m. Sonido programado en {retardo_ms:.2f}ms. Play at: {sound_play_time_cardumen}") # DEBUG
+
+    # Comprobar si es momento de reproducir un sonido programado para el cardumen
+    if sound_play_time_cardumen > 0 and pygame.time.get_ticks() >= sound_play_time_cardumen:
+        if sonar_ping_sound: # Usamos el mismo sonido por ahora
+            sonar_ping_sound.play()
+            # print(f"SONIDO CARDUMEN REPRODUCIDO en {pygame.time.get_ticks()}") # DEBUG
+        sound_play_time_cardumen = 0 # Resetear para que no se reproduzca de nuevo inmediatamente
+    # --- Fin Lógica de Sonido del Eco ---
 
 
     for evento in pygame.event.get():  # El usuario hizo algo
@@ -4060,3 +4095,4 @@ while not hecho:
 if serial_port_available and ser is not None:
     ser.close()
 pygame.quit()
+
