@@ -1,6 +1,7 @@
 # Importamos las bibliotecas pygame y math
 import pygame
 import math
+import time
 import numpy as np # Importar NumPy
 import os # Needed for path manipulation
 import serial # Already present
@@ -2514,6 +2515,7 @@ class Cardumen:
         self.reflectividad_base = reflectividad_base
         self.x_sim = 0
         self.y_sim = 0
+        self.avg_intensity = 0.0 # For Echo Average
 
     def actualizar_posicion(self, delta_tiempo_s, datos_nmea_disponibles=False):
         distancia_movimiento = self.velocidad_mps * delta_tiempo_s
@@ -2598,7 +2600,7 @@ class Cardumen:
 # --- Fin Clase Cardumen ---
 
 # --- Lógica de Intersección Sonar-Cardumen ---
-def calcular_interseccion_sonar_cardumen(pos_rel_cardumen, tilt_deg, apertura_haz_vertical_deg, max_rango_sonar_m):
+def calcular_interseccion_sonar_cardumen(pos_rel_cardumen, tilt_deg, apertura_haz_vertical_deg, max_rango_sonar_m, menu_options=None, cardumen_obj=None):
     """
     Calcula cómo el haz del sonar intersecta con el cardumen.
     Retorna un diccionario con parámetros de la intersección para el renderizado.
@@ -2607,6 +2609,8 @@ def calcular_interseccion_sonar_cardumen(pos_rel_cardumen, tilt_deg, apertura_ha
     tilt_deg: Ángulo de inclinación del haz del sonar (grados). 0 es horizontal. Positivo es hacia abajo.
     apertura_haz_vertical_deg: Apertura total vertical del haz del sonar (ej. 15 grados).
     max_rango_sonar_m: Alcance máximo actual del sonar en metros.
+    menu_options: Diccionario con las opciones del menú para aplicar efectos (TVG, Gain, etc.).
+    cardumen_obj: Objeto Cardumen para mantener estado (promedio).
     """
     dist_h = pos_rel_cardumen["dist_horizontal_m"]
     if dist_h == 0: # Evitar división por cero si el cardumen está directamente debajo
@@ -2689,6 +2693,105 @@ def calcular_interseccion_sonar_cardumen(pos_rel_cardumen, tilt_deg, apertura_ha
     # Intensidad final combinada
     # El factor de "200tn" se considera en cardumen.reflectividad_base
     intensidad_final = factor_solapamiento_vertical * factor_atenuacion_distancia
+
+    # --- Procesamiento de Señal (Menu Options) ---
+    if menu_options:
+        # 1. Potencia TX (1-10)
+        potencia_tx = menu_options.get('potencia_tx', 8)
+        intensidad_final *= (potencia_tx / 10.0)
+
+        # 2. TVG (Time Varied Gain)
+        norm_dist = dist_slant_centro_solapamiento / max_rango_sonar_m if max_rango_sonar_m > 0 else 0
+        norm_dist = min(norm_dist, 1.0)
+
+        tvg_near = menu_options.get('tvg_proximo', 6)
+        if tvg_near > 0:
+            suppression_factor = (tvg_near / 12.0) * math.exp(-norm_dist * 8) 
+            intensidad_final *= (1.0 - suppression_factor)
+
+        tvg_far = menu_options.get('tvg_lejano', 7)
+        if tvg_far > 0:
+            gain_boost = (tvg_far / 5.0) * norm_dist * norm_dist
+            intensidad_final *= (1.0 + gain_boost)
+
+        # 3. CAG (Control Automático de Ganancia)
+        cag = menu_options.get('cag', 2)
+        intensidad_final *= (0.8 + cag / 5.0)
+        
+        cag_2 = menu_options.get('cag_2', 1)
+        intensidad_final *= (0.9 + cag_2 / 10.0)
+
+        # 4. Longitud de Impulso
+        long_impulso = menu_options.get('long_impulso', 8)
+        extra_length = (long_impulso / 10.0) * 40.0 
+        longitud_radial_mancha_m += extra_length
+        intensidad_final *= (1.0 + long_impulso / 20.0)
+
+        # 5. Limitar Ruido (Noise Limiter)
+        # Suprime señales débiles (ruido de fondo simulado)
+        limitar_ruido = menu_options.get('limitar_ruido', 3)
+        if limitar_ruido > 0:
+            noise_threshold = limitar_ruido / 20.0 # 0.05 to 0.5
+            if intensidad_final < noise_threshold:
+                intensidad_final = 0 # Supresión total bajo el umbral
+            else:
+                intensidad_final -= (noise_threshold * 0.5) # Reducción suave sobre el umbral
+
+        # 6. Rechazo Interf (Interference Reject)
+        # Simulamos reducción aleatoria o filtrado
+        rechazo_interf = menu_options.get('rechazo_interf', 1) # 0-3
+        if rechazo_interf > 0:
+            # Simulación simple: reducir picos aleatorios o suavizar.
+            # Aquí solo aplicamos una pequeña reducción constante para simular el filtrado agresivo.
+            intensidad_final *= (1.0 - (rechazo_interf * 0.05))
+
+        # 7. Promedio Eco (Echo Average)
+        promedio_eco = menu_options.get('promedio_eco', 1) # 0-3
+        if cardumen_obj:
+            # Blend with history
+            alpha = 1.0
+            if promedio_eco == 1: alpha = 0.5
+            elif promedio_eco == 2: alpha = 0.25
+            elif promedio_eco == 3: alpha = 0.125
+            
+            if promedio_eco > 0:
+                intensidad_final = (intensidad_final * alpha) + (cardumen_obj.avg_intensity * (1.0 - alpha))
+            
+            cardumen_obj.avg_intensity = intensidad_final
+
+        # 8. Angulo Haz Hor (Horizontal Beamwidth)
+        # ANCHO vs ESTRECHO
+        angulo_haz_hor = menu_options.get('angulo_haz_hor', 'ANCHO')
+        if angulo_haz_hor == 'ESTRECHO':
+            # Reducir el ancho aparente (simular mayor resolución)
+            media_anchura_angular_subtendida_rad *= 0.7
+        else:
+            # Ancho normal o aumentado
+            media_anchura_angular_subtendida_rad *= 1.2
+
+        # 9. Curva Color & Respuesta Color (Gamma Correction / Dynamic Range)
+        curva_color = menu_options.get('curva_color', 1) # 1-4
+        respuesta_color = menu_options.get('respuesta_color', 1) # 1-4
+        
+        # Curva: Afecta la gamma. 1=Lineal, >1=Expansión de bajos o altos.
+        gamma = 1.0
+        if curva_color == 2: gamma = 0.8
+        elif curva_color == 3: gamma = 1.2
+        elif curva_color == 4: gamma = 1.5
+        
+        if intensidad_final > 0:
+            intensidad_final = pow(intensidad_final, gamma)
+
+        # Respuesta: Afecta la ganancia dinámica (pendiente)
+        if respuesta_color > 1:
+            intensidad_final *= (1.0 + (respuesta_color - 1) * 0.1)
+
+        # 10. Anular Color (Color Erase) - Check last to ensure finalized intensity
+        anular_color = menu_options.get('anular_color', 0)
+        if anular_color > 0:
+            threshold = anular_color / 20.0 
+            if intensidad_final < threshold:
+                intensidad_final = 0
 
     return {
         "intensidad_factor": max(0, min(intensidad_final, 1.0)), # Clamp entre 0 y 1
@@ -3275,8 +3378,22 @@ while not hecho:
     if time_to_max_range_oneway_s > 0:
         # To make the sweep twice as slow, we make it take twice as long.
         effective_time_for_sweep_s = time_to_max_range_oneway_s * 2
+        
+        # Ajuste por Ciclo TX (Intervalo)
+        # Ciclo TX 10 = Normal. Menor valor = Más lento (o pausas).
+        # Simulamos ralentizando el barrido.
+        ciclo_tx_val = menu.options.get('ciclo_tx', 10)
+        # Factor: 10 -> 1.0, 1 -> 0.1
+        factor_ciclo = max(0.1, ciclo_tx_val / 10.0)
+        # Invertimos el efecto en el tiempo: Menor ciclo = Tiempo efectivo más largo (más lento)
+        # O simplemente reducimos la velocidad de píxeles por segundo.
+        
         # Pixels per second for the sweep to reach the edge in effective_time_for_sweep_s
         sweep_pixels_per_second = display_radius_pixels / effective_time_for_sweep_s
+        
+        # Aplicar factor de ciclo
+        sweep_pixels_per_second *= factor_ciclo
+
         sweep_increment_ppf = sweep_pixels_per_second / FPS
     
     # --- Sonar Sweep Animation Logic ---
@@ -3329,7 +3446,9 @@ while not hecho:
         pos_rel_cardumen,
         current_tilt_angle, # El tilt actual del sonar
         apertura_haz_vertical_deg,
-        max_rango_actual_metros
+        max_rango_actual_metros,
+        menu.options, # Pasar opciones del menú
+        cardumen_simulado # Pasar objeto cardumen
     )
     # --- Fin Actualización y Lógica del Cardumen ---
 
@@ -3365,6 +3484,49 @@ while not hecho:
         sound_play_time_cardumen = 0 # Resetear para que no se reproduzca de nuevo inmediatamente
     # --- Fin Lógica de Sonido del Eco ---
 
+    # --- Lógica de Auto Tilt (Inclinación Automática) ---
+    if menu.options.get('inclin_auto') == 'ON':
+        # Oscilar el tilt automáticamente
+        # Usamos el tiempo para una oscilación suave
+        # Periodo de oscilación: ~10 segundos
+        oscillation_speed = 0.002 # Ajustar velocidad
+        tilt_base = 15 # Centro de oscilación
+        
+        # Determinar amplitud basada en 'angulo_inclin'
+        # Valores: '±2-10°', '±4-14°', etc. Simplificamos parseo.
+        angulo_inclin_opt = menu.options.get('angulo_inclin', '±2-10°')
+        tilt_amplitude = 5 # Default
+        if '2-10' in angulo_inclin_opt: tilt_amplitude = 4
+        elif '4-14' in angulo_inclin_opt: tilt_amplitude = 5
+        elif '6-20' in angulo_inclin_opt: tilt_amplitude = 7
+        elif '10-26' in angulo_inclin_opt: tilt_amplitude = 8
+        
+        # Calcular nuevo tilt
+        current_time_s = time.time()
+        tilt_offset = math.sin(current_time_s * 0.5) * tilt_amplitude # 0.5 rad/s frequency
+        
+        # Actualizar current_tilt_angle (clamped)
+        current_tilt_angle = int(tilt_base + tilt_offset)
+        current_tilt_angle = max(MIN_TILT, min(MAX_TILT, current_tilt_angle))
+        
+        # Mostrar en pantalla temporalmente para feedback visual
+        show_tilt_temporarily = True
+        tilt_display_timer = 2 # Mantenerlo visible
+
+    # --- Lógica de Alarma (Alarm Level) ---
+    # Si la intensidad del eco supera el nivel de alarma, mostrar alerta.
+    nivel_alarma = menu.options.get('nivel_alarma', 9) # 1-10
+    alarm_threshold = nivel_alarma / 10.0
+    
+    if 'info_interseccion_cardumen' in locals() and info_interseccion_cardumen:
+        if info_interseccion_cardumen.get("intensidad_factor", 0) >= alarm_threshold and alarm_threshold > 0:
+            # Dibujar indicador de alarma visual
+            alarm_text = font_very_large.render("ALARM!", True, current_colors["TARGET_HOVER"]) # Rojo
+            alarm_rect = alarm_text.get_rect(center=(center_x, center_y - 50))
+            pantalla.blit(alarm_text, alarm_rect)
+            
+            # Opcional: Reproducir sonido si no está sonando ya
+            # if sonar_ping_sound: sonar_ping_sound.play() # Puede ser molesto si es continuo
 
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT:
