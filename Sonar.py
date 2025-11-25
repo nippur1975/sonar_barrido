@@ -2519,7 +2519,7 @@ class SounderSystem:
             self.width = width
             self.height = height
             self.history_surface = pygame.Surface((width, height))
-            self.history_surface.fill(current_colors["BACKGROUND"])
+            self.history_surface.fill(current_colors["DATA_PANEL_BG"])
             
             if old_surf:
                 old_w, old_h = old_surf.get_size()
@@ -3344,7 +3344,7 @@ while not hecho:
     circle_origin_x = sonar_margin_left
     circle_origin_y = sonar_margin_top
     
-    if modo_presentac == 'COMBI-2':
+    if modo_presentac in ['COMBI-1', 'COMBI-2']:
         # Sounder Logic: Place in the bottom part of the Data Panel
         # unified_data_box_dims = [x, y, w, h]
         data_panel_x = unified_data_box_dims[0]
@@ -3362,6 +3362,7 @@ while not hecho:
             sounder_y = data_panel_y + data_panel_h - sounder_h - 5
             sounder_w = data_panel_w - 10
             sounder_rect = pygame.Rect(sounder_x, sounder_y, sounder_w, sounder_h)
+            unified_data_box_dims[3] = data_text_height # Reduce the height of the data text box
         
     circle_center_x = circle_origin_x + circle_width // 2
     circle_center_y = circle_origin_y + circle_height // 2
@@ -3907,7 +3908,7 @@ while not hecho:
         lon_surf = font.render(ui_state["cursor_lon_str"], True, current_colors["PRIMARY_TEXT"])
         
         # Position in the center of the right-hand half of the screen, at the top.
-        center_x_pos = int(dimensiones[0] * 0.75)
+        center_x_pos = int(dimensiones[0] * 0.75) - 100
 
         lat_rect = lat_surf.get_rect(centerx=center_x_pos, top=10)
         lon_rect = lon_surf.get_rect(centerx=center_x_pos, top=lat_rect.bottom + 2)
