@@ -16,7 +16,10 @@ from geopy.point import Point
 
 # Inicializamos el motor de juegos
 pygame.init()
-pygame.mixer.init() # Initialize the mixer explicitly
+try:
+    pygame.mixer.init() # Initialize the mixer explicitly
+except pygame.error:
+    print("Warning: No audio device found. Audio disabled.")
 
 # --- COM Port Detection Utility ---
 def get_available_com_ports():
@@ -2497,6 +2500,182 @@ def draw_center_icon(surface, center_x, center_y, total_height, color):
     ]
     pygame.draw.polygon(surface, color, tri_points, 5) # Thickness 5
 
+# --- Class SounderSystem (Sistema Sonda) ---
+class SounderSystem:
+    def __init__(self):
+        self.width = 100
+        self.height = 100
+        self.history_surface = None
+        self.current_x = 0
+        self.bottom_depth = 100.0
+        self.scroll_speed_accum = 0.0
+        self.bottom_variation_phase = 0.0
+        self.simulated_ping_index = 0
+
+    def resize(self, width, height):
+        if width <= 0 or height <= 0: return
+        if self.history_surface is None or width != self.width or height != self.height:
+            old_surf = self.history_surface
+            self.width = width
+            self.height = height
+            self.history_surface = pygame.Surface((width, height))
+            self.history_surface.fill(current_colors["BACKGROUND"])
+            
+            if old_surf:
+                old_w, old_h = old_surf.get_size()
+                # Align right (keep recent history)
+                x_offset = width - old_w
+                self.history_surface.blit(old_surf, (x_offset, 0))
+
+    def update(self, dt_s, menu_options, pos_rel_cardumen, current_ship_speed_knots):
+        if self.history_surface is None: return
+
+        # Simulate bottom
+        move_speed = max(1.0, current_ship_speed_knots if current_ship_speed_knots is not None else 5.0)
+        self.bottom_variation_phase += dt_s * (move_speed * 0.1)
+        
+        # Base depth + variations
+        base_depth = 100.0
+        variation = math.sin(self.bottom_variation_phase) * 10.0 + \
+                    math.sin(self.bottom_variation_phase * 0.3) * 20.0 + \
+                    (math.sin(self.bottom_variation_phase * 5.0) * 1.0)
+        self.bottom_depth = base_depth + variation
+        
+        # Parse Options
+        scale = menu_options.get('sonda_escala', 160)
+        shift = menu_options.get('sonda_desplazar_esc', 0)
+        gain = menu_options.get('sonda_ganancia', 30) / 10.0
+        advance = menu_options.get('sonda_avance_imagen', '2/1')
+        # The menu range is 0-100. User prompt says "CLUTTER : 2.0".
+        # Assuming input 20 means 2.0, so scaling factor is 10.
+        # Clutter density logic likely expects a normalized 0-1 or similar value for probability/density.
+        # Let's keep logic consistent: if user says 2.0, and max is likely 10.0 or similar.
+        # If we divide by 10, 20 -> 2.0. If we divide by 100, 20 -> 0.2.
+        # Let's assume 'clutter' variable here is used as density multiplier.
+        # If density expects int(clutter * 10), then if clutter is 2.0 (from 20/10), we get 20 dots.
+        # If clutter is 0.2 (from 20/100), we get 2 dots.
+        # "Filtro Parasit" implies suppressing noise, but usually "Clutter" control adds rejection or sets threshold?
+        # Or is "Clutter" the amount of clutter visible?
+        # User manual: "CLUTTER: 2.0". Usually "Clutter" or "Rejection" controls reduce noise.
+        # Here I implemented it as ADDING noise for simulation.
+        # So higher clutter setting -> MORE noise.
+        # Let's use / 10.0 to match the user's "2.0" scale convention if 20 is the underlying int.
+        clutter = menu_options.get('sonda_filtro_parasit', 20) / 10.0
+        
+        # Calculate Advance pixels
+        adv_speed = 1.0 # 1/1
+        if advance == '2/1': adv_speed = 2.0
+        elif advance == '1/1': adv_speed = 1.0
+        elif advance == '1/2': adv_speed = 0.5
+        elif advance == '1/4': adv_speed = 0.25
+        elif advance == '1/8': adv_speed = 0.125
+        
+        self.scroll_speed_accum += adv_speed
+        
+        pixels_to_scroll = int(self.scroll_speed_accum)
+        if pixels_to_scroll > 0:
+            self.scroll_speed_accum -= pixels_to_scroll
+            
+            # Scroll left
+            self.history_surface.scroll(-pixels_to_scroll, 0)
+            
+            # Clear new area (rightmost pixels)
+            pygame.draw.rect(self.history_surface, current_colors["BACKGROUND"], 
+                             (self.width - pixels_to_scroll, 0, pixels_to_scroll, self.height))
+            
+            # Draw new columns
+            for i in range(pixels_to_scroll):
+                x_col = self.width - pixels_to_scroll + i
+                self._draw_column(x_col, self.height, scale, shift, gain, clutter, pos_rel_cardumen)
+
+    def _draw_column(self, x, h, scale, shift, gain, clutter, pos_rel_cardumen):
+        # Map depth to Y: y = ((depth - shift) / scale) * h
+        def depth_to_y(d):
+            if scale == 0: return 0
+            return int(((d - shift) / scale) * h)
+
+        # 1. Background Noise (Clutter)
+        if clutter > 0:
+            noise_density = int(clutter * 10) 
+            for _ in range(noise_density):
+                ny = np.random.randint(0, h)
+                base_col = current_colors["SWEEP"]
+                # Slight variation
+                col = (max(0, min(255, base_col[0]-50)), max(0, min(255, base_col[1]-50)), max(0, min(255, base_col[2]-50)))
+                self.history_surface.set_at((x, ny), col)
+
+        # 2. Fish (Cardumen)
+        if pos_rel_cardumen:
+            dist_h = pos_rel_cardumen['dist_horizontal_m']
+            depth_top = pos_rel_cardumen['profundidad_superior_m']
+            depth_bot = pos_rel_cardumen['profundidad_inferior_m']
+            
+            # Beam check (approx 20 deg -> +/- 10 deg)
+            depth_center = (depth_top + depth_bot) / 2
+            beam_radius = depth_center * 0.176 # tan(10 deg)
+            
+            if dist_h < beam_radius:
+                y_top = depth_to_y(depth_top)
+                y_bot = depth_to_y(depth_bot)
+                
+                if y_top < h and y_bot > 0:
+                    y_top = max(0, y_top)
+                    y_bot = min(h, y_bot)
+                    
+                    # Color intensity
+                    intensity = 1.0 - (dist_h / beam_radius)
+                    r = int(255 * intensity)
+                    g = int(50 * intensity)
+                    b = int(255 * (1-intensity))
+                    col = (max(0,min(255,r)), max(0,min(255,g)), max(0,min(255,b)))
+                    
+                    # Use gain
+                    thickness = max(1, int(gain * 0.5))
+                    pygame.draw.line(self.history_surface, col, (x, y_top), (x, y_bot), thickness)
+
+        # 3. Bottom
+        y_bottom = depth_to_y(self.bottom_depth)
+        
+        thickness = max(1, int(gain * 1.5))
+        bottom_color = current_colors.get("TARGET_HOVER", (255, 0, 0)) # Red
+        
+        if 0 <= y_bottom < h:
+            pygame.draw.line(self.history_surface, bottom_color, (x, y_bottom), (x, min(h, y_bottom + thickness)))
+            
+            # Tail
+            tail_len = int(20 * gain)
+            tail_color = (139, 69, 19) # Brownish
+            pygame.draw.line(self.history_surface, tail_color, (x, min(h, y_bottom + thickness)), (x, min(h, y_bottom + thickness + tail_len)))
+
+    def draw(self, surface, dest_rect):
+        if self.history_surface:
+            if dest_rect.width != self.width or dest_rect.height != self.height:
+                self.resize(dest_rect.width, dest_rect.height)
+            
+            surface.blit(self.history_surface, dest_rect)
+            pygame.draw.rect(surface, current_colors["DATA_PANEL_BORDER"], dest_rect, 2)
+            
+            # Draw Depth Scale
+            menu_options = menu.options if 'menu' in globals() else {}
+            scale = menu_options.get('sonda_escala', 160)
+            shift = menu_options.get('sonda_desplazar_esc', 0)
+            
+            num_markers = 5
+            for i in range(num_markers + 1):
+                depth = shift + (scale * i / num_markers)
+                y_pos = dest_rect.top + (i / num_markers) * dest_rect.height
+                if y_pos > dest_rect.bottom: break
+
+                label = font_menu_item.render(f"{int(depth)}", True, current_colors["PRIMARY_TEXT"])
+                label_rect = label.get_rect(right=dest_rect.right - 5, centery=y_pos)
+                if label_rect.top < dest_rect.top: label_rect.top = dest_rect.top + 2
+                if label_rect.bottom > dest_rect.bottom: label_rect.bottom = dest_rect.bottom - 2
+                
+                surface.blit(label, label_rect)
+                pygame.draw.line(surface, current_colors["RANGE_RINGS"], (dest_rect.left, y_pos), (dest_rect.left + 5, y_pos))
+                pygame.draw.line(surface, current_colors["RANGE_RINGS"], (dest_rect.right - 5, y_pos), (dest_rect.right, y_pos))
+
+
 # --- Clase Cardumen ---
 class Cardumen:
     def __init__(self, lat_inicial, lon_inicial, profundidad_centro_inicial_m,
@@ -3074,6 +3253,10 @@ cardumen_simulado.x_sim = 0  # Directamente en proa
 cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
+# --- Inicialización del Sistema Sonda ---
+sounder_system = SounderSystem()
+# ---
+
 # --- Estado de Inicialización Geográfica del Cardumen ---
 cardumen_posicion_geografica_inicializada = False
 # --- Fin Estado de Inicialización Geográfica del Cardumen ---
@@ -3137,28 +3320,49 @@ while not hecho:
     unified_data_box_dims[2] = data_panel_width
     unified_data_box_dims[3] = data_panel_height
 
-    # 2. Círculo del Sonar (ocupa el espacio a la izquierda del panel de datos)
+    # 2. Layout para Sonar y Sonda
+    modo_presentac = menu.options.get('modo_presentac', 'COMBI-1')
+    
     sonar_margin_left = 10
     sonar_margin_top = 10
     sonar_margin_bottom = 10
     sonar_margin_right_to_panel = 10
 
-    available_width_for_sonar = data_panel_x - sonar_margin_left - sonar_margin_right_to_panel
-    available_height_for_sonar = dimensiones[1] - sonar_margin_top - sonar_margin_bottom
+    available_width_total_left = data_panel_x - sonar_margin_left - sonar_margin_right_to_panel
+    available_height_total = dimensiones[1] - sonar_margin_top - sonar_margin_bottom
     
-    sonar_diameter = min(available_width_for_sonar, available_height_for_sonar)
-    sonar_diameter = max(sonar_diameter, 200) # Diámetro mínimo usable
+    sounder_rect = None # Rect for Sounder (Sonda)
+    
+    # Normal / COMBI-1 Logic (Sonar takes full left space)
+    sonar_diameter = min(available_width_total_left, available_height_total)
+    sonar_diameter = max(sonar_diameter, 200) 
 
-    circle_origin_x = sonar_margin_left
-    circle_origin_y = sonar_margin_top
     circle_width = sonar_diameter
     circle_height = sonar_diameter
+    
+    # Align top-left as before (or center vertically?)
+    circle_origin_x = sonar_margin_left
+    circle_origin_y = sonar_margin_top
+    
+    if modo_presentac == 'COMBI-2':
+        # Sounder Logic: Place in the bottom part of the Data Panel
+        # unified_data_box_dims = [x, y, w, h]
+        data_panel_x = unified_data_box_dims[0]
+        data_panel_y = unified_data_box_dims[1]
+        data_panel_w = unified_data_box_dims[2]
+        data_panel_h = unified_data_box_dims[3]
         
-    # Actualizar unified_data_box_dims globalmente si es necesario, o pasar como parámetros.
-    # Por ahora, lo calcularemos aquí y lo usaremos directamente en las secciones de dibujo.
-    # Si alguna función externa lo necesita, habría que considerar cómo pasarlo.
-    # La actualización de la variable global `unified_data_box_dims` ya se hizo arriba.
-
+        # Estimate height used by text data ~350px
+        data_text_height = 360 
+        
+        # Use remaining height for sounder, with some padding
+        sounder_h = data_panel_h - data_text_height - 10
+        if sounder_h > 100: # Ensure minimum height
+            sounder_x = data_panel_x + 5
+            sounder_y = data_panel_y + data_panel_h - sounder_h - 5
+            sounder_w = data_panel_w - 10
+            sounder_rect = pygame.Rect(sounder_x, sounder_y, sounder_w, sounder_h)
+        
     circle_center_x = circle_origin_x + circle_width // 2
     circle_center_y = circle_origin_y + circle_height // 2
     display_radius_pixels = circle_width // 2
@@ -3450,6 +3654,16 @@ while not hecho:
         menu.options, # Pasar opciones del menú
         cardumen_simulado # Pasar objeto cardumen
     )
+    
+    # --- Update Sounder System ---
+    # We need ship speed for bottom simulation. If no NMEA, use simulated speed (e.g. 5kn)
+    ship_speed_for_sounder = 5.0
+    if speed_str != "N/A":
+        try:
+            ship_speed_for_sounder = float(speed_str.replace(" Knots", "").strip())
+        except ValueError: pass
+        
+    sounder_system.update(delta_tiempo_s, menu.options, pos_rel_cardumen, ship_speed_for_sounder)
     # --- Fin Actualización y Lógica del Cardumen ---
 
     # --- Lógica de Programación y Reproducción del Sonido del Eco con Retardo ---
@@ -3707,7 +3921,10 @@ while not hecho:
     # Dibujamos el borde de un círculo para 'barrerlo'
     pygame.draw.ellipse(pantalla, current_colors["PRIMARY_TEXT"], dimensiones_caja, 2)
 
-
+    # --- Draw Sounder (Sonda) ---
+    if sounder_rect:
+        sounder_system.draw(pantalla, sounder_rect)
+    # --- End Draw Sounder ---
 
     # The existing drawing code already calculates center_x, center_y, main_radius from dimensiones_caja:
     center_x = dimensiones_caja[0] + dimensiones_caja[2] // 2 # This is 310
@@ -4331,5 +4548,6 @@ if serial_port_available and ser is not None:
 save_settings()
 # ---
 pygame.quit()
+
 
 
