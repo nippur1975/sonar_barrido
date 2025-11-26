@@ -2567,110 +2567,135 @@ class Echosounder:
         self.last_profundidad = max(10.0, prof_final)
         return self.last_profundidad
 
-    def _dibujar_scanline(self, x, config):
-        profundidad = self._obtener_profundidad(config)
-        rango = config.get('sonda_escala', 300.0)
-        ganancia = config.get('sonda_ganancia', 40) / 10.0
-        filtro_parasit = config.get('sonda_filtro_parasit', 20) / 10.0
-        shift = config.get('sonda_desplazar_esc', 0)
-
-        if rango == 0: return
-        factor_m_a_px = self.height / rango
-        y_fondo = int((profundidad - shift) * factor_m_a_px)
-
-        if y_fondo > 0:
-            # Clutter simulation
-            clutter_density = int(filtro_parasit / 10.0)
-            if clutter_density > 0:
-                clutter_points = np.random.randint(0, self.height, size=clutter_density)
-                for y_clutter in clutter_points:
-                    self.surface.set_at((x, y_clutter), COLORES_ECO[2]) # Pale blue
-            
-            # Interference simulation
-            if config.get('sonda_rechz_interf', 'ON') == 'OFF':
-                if random.random() < 0.1: # 10% chance of interference line
-                    for y_interf in range(self.height):
-                        if random.random() < 0.1:
-                            self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 4)])
-
-        grosor = int(15 + ganancia)
-        anular_color_threshold = config.get('sonda_anular_color', 0) / 10.0
-        
-        curva_map = {'LINEAL': 1.0, '1': 1.0, '2': 0.8, '3': 0.6}
-        gamma = curva_map.get(config.get('sonda_curva_color', 'LINEAL'), 1.0)
-
-        for i in range(grosor):
-            y_draw = y_fondo + i
-            if 0 <= y_draw < self.height:
-                raw_intensity = max(0, 1.0 - (i / grosor))
-
-                if raw_intensity < anular_color_threshold:
-                    continue
-
-                displayed_intensity = raw_intensity ** gamma
-                
-                # Map intensity to color index (1-9)
-                color_index = 1 + int(displayed_intensity * 8)
-                color_index = max(1, min(9, color_index))
-                
-                self.surface.set_at((x, y_draw), COLORES_ECO[color_index])
-
-        # MAIN BANG (Efecto de Quilla / Transmisión)
-        val_menu = float(config.get('sonda_ajuste_calado', 0))
-        
-        # INVERSIÓN LÓGICA: 
-        # Si menú es 0 -> calado es 20.0 (Máximo)
-        # Si menú es 20 -> calado es 0.0 (Mínimo)
-        calado = 20.0 - val_menu
-        
-        # Clamp para seguridad (que no sea negativo)
-        if calado < 0: calado = 0
-
-        # Mantenemos el factor 0.25 que pediste antes para que no sea excesivamente grueso visualmente
-        y_quilla = int((calado - shift) * factor_m_a_px * 0.25)
-
-        if y_quilla > 0:
-            # Dibujar ruido rojo (Saturación)
-            for y in range(0, min(y_quilla, self.height)):
-                if random.random() < 0.9: 
-                    dist_relativa = y / y_quilla 
-
-                    if dist_relativa < 0.3: color = COLORES_ECO[8]   # Rojo Oscuro
-                    elif dist_relativa < 0.6: color = COLORES_ECO[7] # Rojo
-                    elif dist_relativa < 0.8: color = COLORES_ECO[5] # Naranja
-                    else: color = COLORES_ECO[4]                     # Amarillo
-                    
-                    self.surface.set_at((x, y), color)
-            # Línea de separación de quilla (Punteada visualmente)
-            # Dibuja un punto blanco cada 4 píxeles horizontales
-            if int(x) % 4 == 0:
-                 if y_quilla < self.height and y_quilla >= 0:
+    def _dibujar_scanline(self, x, config, datos_cardumen=None): 
+        profundidad = self._obtener_profundidad(config) 
+        rango = config.get('sonda_escala', 300.0) 
+        ganancia = config.get('sonda_ganancia', 40) / 10.0 
+        filtro_parasit = config.get('sonda_filtro_parasit', 20) / 10.0 
+        shift = config.get('sonda_desplazar_esc', 0) 
+ 
+        if rango == 0: return 
+        factor_m_a_px = self.height / rango 
+        y_fondo = int((profundidad - shift) * factor_m_a_px) 
+ 
+        # --- 1. DIBUJO DE CLUTTER/INTERFERENCIA (Mantenemos tu código igual) --- 
+        if y_fondo > 0: 
+            clutter_density = int(filtro_parasit / 10.0) 
+            if clutter_density > 0: 
+                clutter_points = np.random.randint(0, self.height, size=clutter_density) 
+                for y_clutter in clutter_points: 
+                    self.surface.set_at((x, y_clutter), COLORES_ECO[2])  
+             
+            if config.get('sonda_rechz_interf', 'ON') == 'OFF': 
+                if random.random() < 0.1: 
+                    for y_interf in range(self.height): 
+                        if random.random() < 0.1: 
+                            self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 4)]) 
+ 
+        # --- 2. DIBUJO DEL CARDUMEN (NUEVO CÓDIGO) --- 
+        # Si tenemos datos y el barco está sobre el cardumen 
+        if datos_cardumen: 
+            dist_h = datos_cardumen.get("dist_horizontal_m", 10000) 
+            radio_h = datos_cardumen.get("radio_horizontal_m", 0) 
+             
+            # Si la distancia al centro es menor que el radio, estamos encima 
+            if dist_h < radio_h: 
+                prof_sup = datos_cardumen["profundidad_superior_m"] 
+                prof_inf = datos_cardumen["profundidad_inferior_m"] 
+                 
+                # Convertir profundidades a píxeles 
+                y_pez_sup = int((prof_sup - shift) * factor_m_a_px) 
+                y_pez_inf = int((prof_inf - shift) * factor_m_a_px) 
+                 
+                # Calcular intensidad basada en qué tan cerca del centro del cardumen estamos 
+                # 1.0 en el centro, 0.0 en el borde 
+                intensidad_horizontal = 1.0 - (dist_h / radio_h) 
+                 
+                # Dibujar la columna de peces 
+                # Iteramos desde arriba hacia abajo 
+                for y_p in range(max(0, y_pez_sup), min(y_pez_inf, y_fondo)): # y_fondo limita para no dibujar debajo de la tierra 
+                    if 0 <= y_p < self.height: 
+                        # Probabilidad de dibujo basada en densidad simulada 
+                        if random.random() < (0.3 + intensidad_horizontal * 0.5): 
+                            # Elegir color basado en intensidad y aleatoriedad 
+                            rand_val = random.random() 
+                             
+                            # Núcleo del cardumen (Rojo/Naranja) 
+                            if intensidad_horizontal > 0.5 and rand_val > 0.3: 
+                                col = COLORES_ECO[7] # Rojo 
+                            elif intensidad_horizontal > 0.3 and rand_val > 0.3: 
+                                col = COLORES_ECO[5] # Naranja 
+                            else: 
+                                col = COLORES_ECO[3] # Verde/Amarillo 
+                                 
+                            self.surface.set_at((x, y_p), col) 
+ 
+        # --- 3. DIBUJO DEL FONDO MARINO (Mantenemos tu código igual) --- 
+        grosor = int(15 + ganancia) 
+        anular_color_threshold = config.get('sonda_anular_color', 0) / 10.0 
+         
+        curva_map = {'LINEAL': 1.0, '1': 1.0, '2': 0.8, '3': 0.6} 
+        gamma = curva_map.get(config.get('sonda_curva_color', 'LINEAL'), 1.0) 
+ 
+        for i in range(grosor): 
+            y_draw = y_fondo + i 
+            if 0 <= y_draw < self.height: 
+                raw_intensity = max(0, 1.0 - (i / grosor)) 
+ 
+                if raw_intensity < anular_color_threshold: 
+                    continue 
+ 
+                displayed_intensity = raw_intensity ** gamma 
+                color_index = 1 + int(displayed_intensity * 8) 
+                color_index = max(1, min(9, color_index)) 
+                 
+                self.surface.set_at((x, y_draw), COLORES_ECO[color_index]) 
+ 
+        # --- 4. MAIN BANG / QUILLA (Mantenemos tu código modificado anteriormente) --- 
+        val_menu = float(config.get('sonda_ajuste_calado', 0)) 
+        calado = 20.0 - val_menu 
+        if calado < 0: calado = 0 
+        y_quilla = int((calado - shift) * factor_m_a_px * 0.25) 
+ 
+        if y_quilla > 0: 
+            for y in range(0, min(y_quilla, self.height)): 
+                if random.random() < 0.9:  
+                    dist_relativa = y / y_quilla  
+                    if dist_relativa < 0.3: color = COLORES_ECO[8] 
+                    elif dist_relativa < 0.6: color = COLORES_ECO[7] 
+                    elif dist_relativa < 0.8: color = COLORES_ECO[5] 
+                    else: color = COLORES_ECO[4] 
+                    self.surface.set_at((x, y), color) 
+            if int(x) % 4 == 0: 
+                 if y_quilla < self.height: 
                     self.surface.set_at((x, y_quilla), (255, 255, 255))
 
-    def update(self, dt_s, config, colors):
-        rango = config.get('sonda_escala', 300.0)
-        
-        avance_map = {'2/1': 8.0, '1/1': 4.0, '1/2': 2.0, '1/4': 1.0, '1/8': 0.5}
-        avance_key = config.get('sonda_avance_imagen', '1/1')
-        avance = avance_map.get(avance_key, 4.0)
-
-        if VELOCIDAD_SONIDO == 0: return
-        tiempo_viaje_sonido = (rango * 2.0) / VELOCIDAD_SONIDO
-        if avance == 0: return
-        intervalo_ping = tiempo_viaje_sonido / avance
-        
-        self.tiempo_acumulado += dt_s
-        
-        if intervalo_ping > 0 and self.tiempo_acumulado >= intervalo_ping:
-            lineas_a_dibujar = int(self.tiempo_acumulado / intervalo_ping)
-            self.tiempo_acumulado -= (lineas_a_dibujar * intervalo_ping)
-            lineas_a_dibujar = min(lineas_a_dibujar, 10)
-            
-            for _ in range(lineas_a_dibujar):
-                self.surface.blit(self.surface, (-1, 0))
-                pygame.draw.rect(self.surface, self._get_background_color(config), (self.width-1, 0, 1, self.height))
-                self.distancia_barco += 0.5
-                self._dibujar_scanline(self.width - 1, config)
+    def update(self, dt_s, config, colors, datos_cardumen=None): 
+        rango = config.get('sonda_escala', 300.0) 
+         
+        avance_map = {'2/1': 8.0, '1/1': 4.0, '1/2': 2.0, '1/4': 1.0, '1/8': 0.5} 
+        avance_key = config.get('sonda_avance_imagen', '1/1') 
+        avance = avance_map.get(avance_key, 4.0) 
+ 
+        if VELOCIDAD_SONIDO == 0: return 
+        tiempo_viaje_sonido = (rango * 2.0) / VELOCIDAD_SONIDO 
+        if avance == 0: return 
+        intervalo_ping = tiempo_viaje_sonido / avance 
+         
+        self.tiempo_acumulado += dt_s 
+         
+        if intervalo_ping > 0 and self.tiempo_acumulado >= intervalo_ping: 
+            lineas_a_dibujar = int(self.tiempo_acumulado / intervalo_ping) 
+            self.tiempo_acumulado -= (lineas_a_dibujar * intervalo_ping) 
+            lineas_a_dibujar = min(lineas_a_dibujar, 10) 
+             
+            for _ in range(lineas_a_dibujar): 
+                self.surface.blit(self.surface, (-1, 0)) 
+                pygame.draw.rect(self.surface, self._get_background_color(config), (self.width-1, 0, 1, self.height)) 
+                self.distancia_barco += 0.5 
+                 
+                # AQUÍ PASAMOS LOS DATOS DEL CARDUMEN 
+                self._dibujar_scanline(self.width - 1, config, datos_cardumen)
 
     def _draw_grid(self, screen, dest_rect, config):
         rango = config.get('sonda_escala', 300.0)
@@ -3717,7 +3742,7 @@ while not hecho:
     if modo_presentac in ['COMBI-1', 'COMBI-2']:
         if sounder_rect and (sounder_rect.width != echosounder_sim.width or sounder_rect.height != echosounder_sim.height):
              echosounder_sim.resize(sounder_rect.width, sounder_rect.height, current_colors, menu.options)
-        echosounder_sim.update(delta_tiempo_s, menu.options, current_colors)
+        echosounder_sim.update(delta_tiempo_s, menu.options, current_colors, pos_rel_cardumen)
     # --- Fin Actualización y Lógica del Cardumen ---
 
     # --- Lógica de Programación y Reproducción del Sonido del Eco con Retardo ---
@@ -4628,6 +4653,10 @@ if serial_port_available and ser is not None:
 save_settings()
 # ---
 pygame.quit()
+
+
+
+
 
 
 
