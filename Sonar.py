@@ -4,6 +4,7 @@ import math
 import time
 import numpy as np # Importar NumPy
 import os # Needed for path manipulation
+import random
 import serial # Already present
 import serial.tools.list_ports # For COM port detection
 import functools
@@ -567,8 +568,8 @@ class MenuSystem:
     def _create_sonda_layout(self):
         return [
             {'label': 'COLOR', 'key': 'sonda_color', 'type': 'selector', 'values': [1, 2, 3, 4]},
-            {'label': 'ESCALA', 'key': 'sonda_escala', 'type': 'numeric_adjustable', 'range': (10, 2000)},
-            {'label': 'DESPLAZAR ESC.', 'key': 'sonda_desplazar_esc', 'type': 'numeric_adjustable', 'range': (0, 500)},
+            {'label': 'ESCALA', 'key': 'sonda_escala', 'type': 'stepped_selector', 'values': [20, 40, 80, 120, 160, 240, 320]},
+            {'label': 'DESPLAZAR ESC.', 'key': 'sonda_desplazar_esc', 'type': 'numeric_adjustable', 'range': (0, 1000)},
             {'label': 'RECHZ INTERF', 'key': 'sonda_rechz_interf', 'type': 'selector', 'values': ['ON', 'OFF']},
             {'label': 'GANANCIA', 'key': 'sonda_ganancia', 'type': 'numeric_adjustable', 'range': (0, 100)},
             {'label': 'FILTRO PARASIT', 'key': 'sonda_filtro_parasit', 'type': 'numeric_adjustable', 'range': (0, 100)},
@@ -641,7 +642,7 @@ class MenuSystem:
                         elif event.key == pygame.K_l:
                             self.options[key] = max(self.options[key] - 1, min_val)
                     
-                    elif focused_item['type'] == 'selector':
+                    elif focused_item['type'] in ['selector', 'stepped_selector']:
                         valid_values = focused_item.get('values', [])
                         if valid_values:
                             current_value = self.options.get(key)
@@ -873,6 +874,10 @@ class MenuSystem:
                 if item['key'] == 'ajuste_proa': value_text += "°"
                 if item['key'] == 'sonda_ajuste_calado': value_text += " (m)"
 
+                value_surf = self.font_item_value.render(value_text, True, self.color_text_light)
+                content_surface.blit(value_surf, (value_start_x, current_y))
+            elif item['type'] == 'stepped_selector':
+                value_text = str(self.options[item['key']])
                 value_surf = self.font_item_value.render(value_text, True, self.color_text_light)
                 content_surface.blit(value_surf, (value_start_x, current_y))
             elif item['type'] == 'selector':
@@ -2500,180 +2505,145 @@ def draw_center_icon(surface, center_x, center_y, total_height, color):
     ]
     pygame.draw.polygon(surface, color, tri_points, 5) # Thickness 5
 
-# --- Class SounderSystem (Sistema Sonda) ---
-class SounderSystem:
-    def __init__(self):
-        self.width = 100
-        self.height = 100
-        self.history_surface = None
-        self.current_x = 0
-        self.bottom_depth = 100.0
-        self.scroll_speed_accum = 0.0
-        self.bottom_variation_phase = 0.0
-        self.simulated_ping_index = 0
+# --- Echosounder Simulation ---
+VELOCIDAD_SONIDO = 1500.0  # m/s in salt water
 
-    def resize(self, width, height):
-        if width <= 0 or height <= 0: return
-        if self.history_surface is None or width != self.width or height != self.height:
-            old_surf = self.history_surface
-            self.width = width
-            self.height = height
-            self.history_surface = pygame.Surface((width, height))
-            self.history_surface.fill(current_colors["BACKGROUND"])
-            
-            if old_surf:
-                old_w, old_h = old_surf.get_size()
-                # Align right (keep recent history)
-                x_offset = width - old_w
-                self.history_surface.blit(old_surf, (x_offset, 0))
+# Furuno Palette
+COLORES_ECO = [
+    (0, 0, 30),         # 0: Deep blue sea background
+    (0, 100, 255),      # 1: Blue (Noise)
+    (0, 200, 200),      # 2: Cyan
+    (0, 255, 0),        # 3: Green
+    (255, 255, 0),      # 4: Yellow
+    (255, 165, 0),      # 5: Orange
+    (255, 100, 0),      # 6: Strong Orange
+    (255, 0, 0),        # 7: Red (Bottom)
+    (150, 0, 0),        # 8: Dark Red
+    (100, 50, 0),       # 9: Brown
+    (255, 255, 255)     # 10: WHITE LINE
+]
 
-    def update(self, dt_s, menu_options, pos_rel_cardumen, current_ship_speed_knots):
-        if self.history_surface is None: return
+class Echosounder:
+    def __init__(self, width, height, colors):
+        self.surface = pygame.Surface((width, height))
+        self.distancia_barco = 0.0
+        self.tiempo_acumulado = 0.0
+        self.last_profundidad = 0.0
+        self.font = pygame.font.SysFont("monospace", 16, bold=True)
+        self.fuente_info = pygame.font.SysFont("monospace", 20, bold=True)
+        self.resize(width, height, colors)
 
-        # Simulate bottom
-        move_speed = max(1.0, current_ship_speed_knots if current_ship_speed_knots is not None else 5.0)
-        self.bottom_variation_phase += dt_s * (move_speed * 0.1)
+    def resize(self, width, height, colors):
+        self.width = width
+        self.height = height
+        old_surface = self.surface if hasattr(self, 'surface') else None
+        self.surface = pygame.Surface((width, height))
+        self.surface.fill(colors["DATA_PANEL_BG"])
+        if old_surface:
+            self.surface.blit(old_surface, (0, 0))
+
+    def _obtener_profundidad(self, config):
+        base = 150.0  # Fixed base depth for simulation
+        amp = 40.0
         
-        # Base depth + variations
-        base_depth = 100.0
-        variation = math.sin(self.bottom_variation_phase) * 10.0 + \
-                    math.sin(self.bottom_variation_phase * 0.3) * 20.0 + \
-                    (math.sin(self.bottom_variation_phase * 5.0) * 1.0)
-        self.bottom_depth = base_depth + variation
+        onda_larga = np.sin(self.distancia_barco / 300.0) * amp
+        onda_media = np.sin(self.distancia_barco / 120.0) * (amp * 0.3)
+        ruido = np.sin(self.distancia_barco / 10.0) * 2.0
         
-        # Parse Options
-        scale = menu_options.get('sonda_escala', 160)
-        shift = menu_options.get('sonda_desplazar_esc', 0)
-        gain = menu_options.get('sonda_ganancia', 30) / 10.0
-        advance = menu_options.get('sonda_avance_imagen', '2/1')
-        # The menu range is 0-100. User prompt says "CLUTTER : 2.0".
-        # Assuming input 20 means 2.0, so scaling factor is 10.
-        # Clutter density logic likely expects a normalized 0-1 or similar value for probability/density.
-        # Let's keep logic consistent: if user says 2.0, and max is likely 10.0 or similar.
-        # If we divide by 10, 20 -> 2.0. If we divide by 100, 20 -> 0.2.
-        # Let's assume 'clutter' variable here is used as density multiplier.
-        # If density expects int(clutter * 10), then if clutter is 2.0 (from 20/10), we get 20 dots.
-        # If clutter is 0.2 (from 20/100), we get 2 dots.
-        # "Filtro Parasit" implies suppressing noise, but usually "Clutter" control adds rejection or sets threshold?
-        # Or is "Clutter" the amount of clutter visible?
-        # User manual: "CLUTTER: 2.0". Usually "Clutter" or "Rejection" controls reduce noise.
-        # Here I implemented it as ADDING noise for simulation.
-        # So higher clutter setting -> MORE noise.
-        # Let's use / 10.0 to match the user's "2.0" scale convention if 20 is the underlying int.
-        clutter = menu_options.get('sonda_filtro_parasit', 20) / 10.0
-        
-        # Calculate Advance pixels
-        adv_speed = 1.0 # 1/1
-        if advance == '2/1': adv_speed = 2.0
-        elif advance == '1/1': adv_speed = 1.0
-        elif advance == '1/2': adv_speed = 0.5
-        elif advance == '1/4': adv_speed = 0.25
-        elif advance == '1/8': adv_speed = 0.125
-        
-        self.scroll_speed_accum += adv_speed
-        
-        pixels_to_scroll = int(self.scroll_speed_accum)
-        if pixels_to_scroll > 0:
-            self.scroll_speed_accum -= pixels_to_scroll
-            
-            # Scroll left
-            self.history_surface.scroll(-pixels_to_scroll, 0)
-            
-            # Clear new area (rightmost pixels)
-            pygame.draw.rect(self.history_surface, current_colors["BACKGROUND"], 
-                             (self.width - pixels_to_scroll, 0, pixels_to_scroll, self.height))
-            
-            # Draw new columns
-            for i in range(pixels_to_scroll):
-                x_col = self.width - pixels_to_scroll + i
-                self._draw_column(x_col, self.height, scale, shift, gain, clutter, pos_rel_cardumen)
+        prof_final = base + onda_larga + onda_media + ruido
+        self.last_profundidad = max(10.0, prof_final)
+        return self.last_profundidad
 
-    def _draw_column(self, x, h, scale, shift, gain, clutter, pos_rel_cardumen):
-        # Map depth to Y: y = ((depth - shift) / scale) * h
-        def depth_to_y(d):
-            if scale == 0: return 0
-            return int(((d - shift) / scale) * h)
+    def _dibujar_scanline(self, x, config):
+        profundidad = self._obtener_profundidad(config)
+        rango = config.get('sonda_escala', 300.0)
+        ganancia = config.get('sonda_ganancia', 40) / 10.0
+        filtro_parasit = config.get('sonda_filtro_parasit', 20) / 10.0
+        shift = config.get('sonda_desplazar_esc', 0)
 
-        # 1. Background Noise (Clutter)
-        if clutter > 0:
-            noise_density = int(clutter * 10) 
-            for _ in range(noise_density):
-                ny = np.random.randint(0, h)
-                base_col = current_colors["SWEEP"]
-                # Slight variation
-                col = (max(0, min(255, base_col[0]-50)), max(0, min(255, base_col[1]-50)), max(0, min(255, base_col[2]-50)))
-                self.history_surface.set_at((x, ny), col)
+        if rango == 0: return
+        factor_m_a_px = self.height / rango
+        y_fondo = int((profundidad - shift) * factor_m_a_px)
 
-        # 2. Fish (Cardumen)
-        if pos_rel_cardumen:
-            dist_h = pos_rel_cardumen['dist_horizontal_m']
-            depth_top = pos_rel_cardumen['profundidad_superior_m']
-            depth_bot = pos_rel_cardumen['profundidad_inferior_m']
+        if y_fondo > 0:
+            # Clutter simulation
+            clutter_density = int(filtro_parasit / 10.0)
+            if clutter_density > 0:
+                clutter_points = np.random.randint(0, self.height, size=clutter_density)
+                for y_clutter in clutter_points:
+                    self.surface.set_at((x, y_clutter), COLORES_ECO[2]) # Pale blue
             
-            # Beam check (approx 20 deg -> +/- 10 deg)
-            depth_center = (depth_top + depth_bot) / 2
-            beam_radius = depth_center * 0.176 # tan(10 deg)
-            
-            if dist_h < beam_radius:
-                y_top = depth_to_y(depth_top)
-                y_bot = depth_to_y(depth_bot)
+            # Interference simulation
+            if config.get('sonda_rechz_interf', 'OFF') == 'ON':
+                if random.random() < 0.1: # 10% chance of interference line
+                    for y_interf in range(self.height):
+                        if random.random() < 0.1:
+                            self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 4)])
+
+        grosor = int(15 + ganancia)
+        anular_color_threshold = config.get('sonda_anular_color', 0) / 10.0
+
+        curva_map = {'LINEAL': 1.0, '1': 1.0, '2': 0.8, '3': 0.6}
+        gamma = curva_map.get(config.get('sonda_curva_color', 'LINEAL'), 1.0)
+
+        for i in range(grosor):
+            y_draw = y_fondo + i
+            if 0 <= y_draw < self.height:
+                raw_intensity = max(0, 1.0 - (i / grosor))
+
+                if raw_intensity < anular_color_threshold:
+                    continue
+
+                displayed_intensity = raw_intensity ** gamma
                 
-                if y_top < h and y_bot > 0:
-                    y_top = max(0, y_top)
-                    y_bot = min(h, y_bot)
-                    
-                    # Color intensity
-                    intensity = 1.0 - (dist_h / beam_radius)
-                    r = int(255 * intensity)
-                    g = int(50 * intensity)
-                    b = int(255 * (1-intensity))
-                    col = (max(0,min(255,r)), max(0,min(255,g)), max(0,min(255,b)))
-                    
-                    # Use gain
-                    thickness = max(1, int(gain * 0.5))
-                    pygame.draw.line(self.history_surface, col, (x, y_top), (x, y_bot), thickness)
+                # Map intensity to color index (1-9)
+                color_index = 1 + int(displayed_intensity * 8)
+                color_index = max(1, min(9, color_index))
 
-        # 3. Bottom
-        y_bottom = depth_to_y(self.bottom_depth)
+                self.surface.set_at((x, y_draw), COLORES_ECO[color_index])
+
+    def update(self, dt_s, config, colors):
+        rango = config.get('sonda_escala', 300.0)
+
+        avance_map = {'2/1': 8.0, '1/1': 4.0, '1/2': 2.0, '1/4': 1.0, '1/8': 0.5}
+        avance_key = config.get('sonda_avance_imagen', '1/1')
+        avance = avance_map.get(avance_key, 4.0)
+
+        if VELOCIDAD_SONIDO == 0: return
+        tiempo_viaje_sonido = (rango * 2.0) / VELOCIDAD_SONIDO
+        if avance == 0: return
+        intervalo_ping = tiempo_viaje_sonido / avance
         
-        thickness = max(1, int(gain * 1.5))
-        bottom_color = current_colors.get("TARGET_HOVER", (255, 0, 0)) # Red
+        self.tiempo_acumulado += dt_s
         
-        if 0 <= y_bottom < h:
-            pygame.draw.line(self.history_surface, bottom_color, (x, y_bottom), (x, min(h, y_bottom + thickness)))
+        if intervalo_ping > 0 and self.tiempo_acumulado >= intervalo_ping:
+            lineas_a_dibujar = int(self.tiempo_acumulado / intervalo_ping)
+            self.tiempo_acumulado -= (lineas_a_dibujar * intervalo_ping)
+            lineas_a_dibujar = min(lineas_a_dibujar, 10)
             
-            # Tail
-            tail_len = int(20 * gain)
-            tail_color = (139, 69, 19) # Brownish
-            pygame.draw.line(self.history_surface, tail_color, (x, min(h, y_bottom + thickness)), (x, min(h, y_bottom + thickness + tail_len)))
+            for _ in range(lineas_a_dibujar):
+                self.surface.blit(self.surface, (-1, 0))
+                pygame.draw.rect(self.surface, colors["DATA_PANEL_BG"], (self.width-1, 0, 1, self.height))
+                self.distancia_barco += 0.5
+                self._dibujar_scanline(self.width - 1, config)
 
-    def draw(self, surface, dest_rect):
-        if self.history_surface:
-            if dest_rect.width != self.width or dest_rect.height != self.height:
-                self.resize(dest_rect.width, dest_rect.height)
-            
-            surface.blit(self.history_surface, dest_rect)
-            pygame.draw.rect(surface, current_colors["DATA_PANEL_BORDER"], dest_rect, 2)
-            
-            # Draw Depth Scale
-            menu_options = menu.options if 'menu' in globals() else {}
-            scale = menu_options.get('sonda_escala', 160)
-            shift = menu_options.get('sonda_desplazar_esc', 0)
-            
-            num_markers = 5
-            for i in range(num_markers + 1):
-                depth = shift + (scale * i / num_markers)
-                y_pos = dest_rect.top + (i / num_markers) * dest_rect.height
-                if y_pos > dest_rect.bottom: break
+    def draw(self, screen, dest_rect, config):
+        screen.blit(pygame.transform.scale(self.surface, dest_rect.size), dest_rect)
 
-                label = font_menu_item.render(f"{int(depth)}", True, current_colors["PRIMARY_TEXT"])
-                label_rect = label.get_rect(right=dest_rect.right - 5, centery=y_pos)
-                if label_rect.top < dest_rect.top: label_rect.top = dest_rect.top + 2
-                if label_rect.bottom > dest_rect.bottom: label_rect.bottom = dest_rect.bottom - 2
-                
-                surface.blit(label, label_rect)
-                pygame.draw.line(surface, current_colors["RANGE_RINGS"], (dest_rect.left, y_pos), (dest_rect.left + 5, y_pos))
-                pygame.draw.line(surface, current_colors["RANGE_RINGS"], (dest_rect.right - 5, y_pos), (dest_rect.right, y_pos))
+        rango = config.get('sonda_escala', 300.0)
+        if rango == 0: return
+        factor = dest_rect.height / rango
+        paso_grid = 50 if rango < 500 else 100
+        for m in range(0, int(rango), paso_grid):
+            y = dest_rect.top + m * factor
+            pygame.draw.line(screen, (255, 255, 255, 50), (dest_rect.left, y), (dest_rect.right, y), 1)
+            lbl = self.font.render(str(m), True, (150, 150, 150))
+            screen.blit(lbl, (dest_rect.right - 40, y))
+            
+        draft = config.get('sonda_ajuste_calado', 0)
+        txt_prof = self.fuente_info.render(f"{(self.last_profundidad + draft):.1f}m", True, (255, 255, 255))
+        pygame.draw.rect(screen, (0,0,0), (dest_rect.left + 10, dest_rect.bottom - 40, 100, 30))
+        screen.blit(txt_prof, (dest_rect.left + 20, dest_rect.bottom - 35))
 
 
 # --- Clase Cardumen ---
@@ -3254,7 +3224,7 @@ cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
 # --- Inicialización del Sistema Sonda ---
-sounder_system = SounderSystem()
+echosounder_sim = Echosounder(100, 100, current_colors) # Initial size, will be resized
 # ---
 
 # --- Estado de Inicialización Geográfica del Cardumen ---
@@ -3344,7 +3314,7 @@ while not hecho:
     circle_origin_x = sonar_margin_left
     circle_origin_y = sonar_margin_top
     
-    if modo_presentac == 'COMBI-2':
+    if modo_presentac in ['COMBI-1', 'COMBI-2']:
         # Sounder Logic: Place in the bottom part of the Data Panel
         # unified_data_box_dims = [x, y, w, h]
         data_panel_x = unified_data_box_dims[0]
@@ -3362,6 +3332,7 @@ while not hecho:
             sounder_y = data_panel_y + data_panel_h - sounder_h - 5
             sounder_w = data_panel_w - 10
             sounder_rect = pygame.Rect(sounder_x, sounder_y, sounder_w, sounder_h)
+            unified_data_box_dims[3] = data_text_height # Reduce the height of the data text box
         
     circle_center_x = circle_origin_x + circle_width // 2
     circle_center_y = circle_origin_y + circle_height // 2
@@ -3655,15 +3626,11 @@ while not hecho:
         cardumen_simulado # Pasar objeto cardumen
     )
     
-    # --- Update Sounder System ---
-    # We need ship speed for bottom simulation. If no NMEA, use simulated speed (e.g. 5kn)
-    ship_speed_for_sounder = 5.0
-    if speed_str != "N/A":
-        try:
-            ship_speed_for_sounder = float(speed_str.replace(" Knots", "").strip())
-        except ValueError: pass
-        
-    sounder_system.update(delta_tiempo_s, menu.options, pos_rel_cardumen, ship_speed_for_sounder)
+    # --- Update Echosounder System ---
+    if modo_presentac in ['COMBI-1', 'COMBI-2']:
+        if sounder_rect and (sounder_rect.width != echosounder_sim.width or sounder_rect.height != echosounder_sim.height):
+             echosounder_sim.resize(sounder_rect.width, sounder_rect.height, current_colors)
+        echosounder_sim.update(delta_tiempo_s, menu.options, current_colors)
     # --- Fin Actualización y Lógica del Cardumen ---
 
     # --- Lógica de Programación y Reproducción del Sonido del Eco con Retardo ---
@@ -3907,7 +3874,7 @@ while not hecho:
         lon_surf = font.render(ui_state["cursor_lon_str"], True, current_colors["PRIMARY_TEXT"])
         
         # Position in the center of the right-hand half of the screen, at the top.
-        center_x_pos = int(dimensiones[0] * 0.75)
+        center_x_pos = int(dimensiones[0] * 0.75) - 100
 
         lat_rect = lat_surf.get_rect(centerx=center_x_pos, top=10)
         lon_rect = lon_surf.get_rect(centerx=center_x_pos, top=lat_rect.bottom + 2)
@@ -3922,8 +3889,8 @@ while not hecho:
     pygame.draw.ellipse(pantalla, current_colors["PRIMARY_TEXT"], dimensiones_caja, 2)
 
     # --- Draw Sounder (Sonda) ---
-    if sounder_rect:
-        sounder_system.draw(pantalla, sounder_rect)
+    if sounder_rect and modo_presentac in ['COMBI-1', 'COMBI-2']:
+        echosounder_sim.draw(pantalla, sounder_rect, menu.options)
     # --- End Draw Sounder ---
 
     # The existing drawing code already calculates center_x, center_y, main_radius from dimensiones_caja:
@@ -4537,6 +4504,7 @@ while not hecho:
     # Avancemos y actualicemos la pantalla con lo que hemos dibujado.
     menu.draw(pantalla)
     pygame.display.flip()
+    pygame.image.save(pantalla, "sonar_screenshot.png")
 
     # Limitamos a 60 fotogramas por segundo
     reloj.tick(60)
