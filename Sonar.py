@@ -2615,6 +2615,28 @@ class Echosounder:
                 
                 self.surface.set_at((x, y_draw), COLORES_ECO[color_index])
 
+        # MAIN BANG (Efecto de Quilla / Transmisión)
+        calado = config.get('sonda_ajuste_calado', 0)
+        y_quilla = int((calado - shift) * factor_m_a_px)
+
+        if y_quilla > 0:
+            for y in range(0, min(y_quilla, self.height)):
+                # Ruido muy saturado (Rojo/Naranja) cerca de 0, desvaneciendo a amarillo/verde
+                if random.random() < 0.9: # Muy denso
+                    dist_relativa = y / y_quilla # 0 a 1
+
+                    if dist_relativa < 0.3: color = COLORES_ECO[8]   # Rojo Oscuro (Saturación total)
+                    elif dist_relativa < 0.6: color = COLORES_ECO[7] # Rojo
+                    elif dist_relativa < 0.8: color = COLORES_ECO[5] # Naranja
+                    else: color = COLORES_ECO[4]                     # Amarillo (Borde de la quilla)
+
+                    self.surface.set_at((x, y), color)
+
+            # Línea de separación de quilla (Punteada visualmente)
+            if int(x) % 4 == 0:
+                 if y_quilla < self.height:
+                    self.surface.set_at((x, y_quilla), (255, 255, 255))
+
     def update(self, dt_s, config, colors):
         rango = config.get('sonda_escala', 300.0)
         
@@ -4563,7 +4585,6 @@ while not hecho:
     # Avancemos y actualicemos la pantalla con lo que hemos dibujado.
     menu.draw(pantalla)
     pygame.display.flip()
-    pygame.image.save(pantalla, "sonar_screenshot.png")
 
     # Limitamos a 60 fotogramas por segundo
     reloj.tick(60)
