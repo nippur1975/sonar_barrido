@@ -470,7 +470,7 @@ class MenuSystem:
             'sonda_avance_imagen': '2/1',
             'sonda_curva_color': 'LINEAL',
             'sonda_anular_color': 0,
-            'sonda_ajuste_calado': 0,
+            'sonda_ajuste_calado': 20,
 
             # Opciones de la pestaña SISTEMA
             'iluminacion': 5,
@@ -576,7 +576,7 @@ class MenuSystem:
             {'label': 'AVANCE IMAGEN', 'key': 'sonda_avance_imagen', 'type': 'selector', 'values': ['2/1', '1/1', '1/2', '1/4', '1/8']},
             {'label': 'CURVA COLOR', 'key': 'sonda_curva_color', 'type': 'selector', 'values': ['LINEAL', '1', '2', '3']},
             {'label': 'ANULAR COLOR', 'key': 'sonda_anular_color', 'type': 'numeric_adjustable', 'range': (0, 10)},
-            {'label': 'AJUSTE CALADO', 'key': 'sonda_ajuste_calado', 'type': 'numeric_adjustable', 'range': (0, 200)},
+            {'label': 'AJUSTE CALADO', 'key': 'sonda_ajuste_calado', 'type': 'numeric_adjustable', 'range': (0, 20)},
         ]
 
     def toggle(self):
@@ -866,7 +866,7 @@ class MenuSystem:
             # --- Draw Controls ---
             if item['type'] in ['numeric_adjustable']:
                 value = self.options[item['key']]
-                if item['key'] in ['sonda_ganancia', 'sonda_filtro_parasit', 'sonda_ajuste_calado']:
+                if item['key'] in ['sonda_ganancia', 'sonda_filtro_parasit']:
                     value_text = f"{value / 10.0:.1f}"
                 else:
                     value_text = f"{value}"
@@ -2556,12 +2556,12 @@ class Echosounder:
             self.surface.blit(old_surface, (0, 0))
 
     def _obtener_profundidad(self, config):
-        base = 150.0  # Fixed base depth for simulation
+        base = 280.0  # Fixed base depth for simulation
         amp = 40.0
         
         onda_larga = np.sin(self.distancia_barco / 300.0) * amp
-        onda_media = np.sin(self.distancia_barco / 120.0) * (amp * 0.3)
-        ruido = np.sin(self.distancia_barco / 10.0) * 2.0
+        onda_media = np.sin(self.distancia_barco / 180.0) * (amp * 0.3)
+        ruido = np.sin(self.distancia_barco / 80.0) * 2.0
         
         prof_final = base + onda_larga + onda_media + ruido
         self.last_profundidad = max(10.0, prof_final)
@@ -2614,6 +2614,38 @@ class Echosounder:
                 color_index = max(1, min(9, color_index))
                 
                 self.surface.set_at((x, y_draw), COLORES_ECO[color_index])
+
+        # MAIN BANG (Efecto de Quilla / Transmisión)
+        val_menu = float(config.get('sonda_ajuste_calado', 0))
+        
+        # INVERSIÓN LÓGICA: 
+        # Si menú es 0 -> calado es 20.0 (Máximo)
+        # Si menú es 20 -> calado es 0.0 (Mínimo)
+        calado = 20.0 - val_menu
+        
+        # Clamp para seguridad (que no sea negativo)
+        if calado < 0: calado = 0
+
+        # Mantenemos el factor 0.25 que pediste antes para que no sea excesivamente grueso visualmente
+        y_quilla = int((calado - shift) * factor_m_a_px * 0.25)
+
+        if y_quilla > 0:
+            # Dibujar ruido rojo (Saturación)
+            for y in range(0, min(y_quilla, self.height)):
+                if random.random() < 0.9: 
+                    dist_relativa = y / y_quilla 
+
+                    if dist_relativa < 0.3: color = COLORES_ECO[8]   # Rojo Oscuro
+                    elif dist_relativa < 0.6: color = COLORES_ECO[7] # Rojo
+                    elif dist_relativa < 0.8: color = COLORES_ECO[5] # Naranja
+                    else: color = COLORES_ECO[4]                     # Amarillo
+                    
+                    self.surface.set_at((x, y), color)
+            # Línea de separación de quilla (Punteada visualmente)
+            # Dibuja un punto blanco cada 4 píxeles horizontales
+            if int(x) % 4 == 0:
+                 if y_quilla < self.height and y_quilla >= 0:
+                    self.surface.set_at((x, y_quilla), (255, 255, 255))
 
     def update(self, dt_s, config, colors):
         rango = config.get('sonda_escala', 300.0)
@@ -2673,12 +2705,32 @@ class Echosounder:
         screen.blit(txt_prof, (dest_rect.left + 20, dest_rect.bottom - 35))
 
     def draw(self, screen, dest_rect, config):
-        # Blit the main surface which contains the echosounder data
+        # 1. Dibujar la superficie principal (historial de ecos)
         screen.blit(pygame.transform.scale(self.surface, dest_rect.size), dest_rect)
         
-        # Draw the grid and other info on top
+        # 2. Dibujar la grilla y la información de texto
         self._draw_grid(screen, dest_rect, config)
         self._draw_info(screen, dest_rect, config)
+
+        # --- CÓDIGO NUEVO: MARCADOR DE QUILLA (DRAFT) ---
+        calado = (200 - config.get('sonda_ajuste_calado', 200)) / 10.0
+        rango = config.get('sonda_escala', 300.0)
+        shift = config.get('sonda_desplazar_esc', 0)
+
+        if rango > 0:
+            # Calcular posición Y del calado en la pantalla actual
+            # (calado - shift) porque si hacemos shift hacia abajo, la quilla sube visualmente
+            factor_escala_visual = dest_rect.height / rango
+            y_quilla_relativa = (calado - shift) * factor_escala_visual
+            y_quilla_screen = dest_rect.top + y_quilla_relativa
+
+            # Solo dibujar si está dentro del área visible de la sonda
+            if dest_rect.top <= y_quilla_screen <= dest_rect.bottom:
+                pass
+                
+                
+                # Opcional: Una línea fina roja horizontal a través de la pantalla
+                # pygame.draw.line(screen, (255, 0, 0), (dest_rect.left, y_quilla_screen), (dest_rect.right, y_quilla_screen), 1)
 
 
 # --- Clase Cardumen ---
@@ -3946,7 +3998,8 @@ while not hecho:
                 depth_surf = font.render(depth_text, True, crosshair_color)
                 
                 # Position text near the cursor, with a small black background for readability
-                depth_rect = depth_surf.get_rect(topleft=(mouse_x + 8, mouse_y + 8))
+                depth_rect = depth_surf.get_rect(topright=(mouse_x + 10, mouse_y + 10))
+            
                 bg_rect = depth_rect.inflate(4, 4)
                 pygame.draw.rect(pantalla, (0,0,0), bg_rect)
                 pantalla.blit(depth_surf, depth_rect)
@@ -4575,7 +4628,6 @@ if serial_port_available and ser is not None:
 save_settings()
 # ---
 pygame.quit()
-
 
 
 
