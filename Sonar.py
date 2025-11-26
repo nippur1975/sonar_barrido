@@ -2524,21 +2524,34 @@ COLORES_ECO = [
 ]
 
 class Echosounder:
-    def __init__(self, width, height, colors):
+    def __init__(self, width, height, colors, config):
         self.surface = pygame.Surface((width, height))
         self.distancia_barco = 0.0
         self.tiempo_acumulado = 0.0
         self.last_profundidad = 0.0
         self.font = pygame.font.SysFont("monospace", 16, bold=True)
         self.fuente_info = pygame.font.SysFont("monospace", 20, bold=True)
-        self.resize(width, height, colors)
+        self.resize(width, height, colors, config)
 
-    def resize(self, width, height, colors):
+    def _get_background_color(self, config):
+        color_choice = config.get('sonda_color', 1)
+        # 1:Verde, 2:Negro, 3:Azul, 4:Blanco
+        if color_choice == 1:
+            return (0, 100, 0) # Verde Oscuro
+        elif color_choice == 2:
+            return (0, 0, 0) # Negro
+        elif color_choice == 3:
+            return (0, 0, 139) # Azul Oscuro
+        elif color_choice == 4:
+            return (255, 255, 255) # Blanco
+        return (0, 0, 139) # Default a azul
+
+    def resize(self, width, height, colors, config):
         self.width = width
         self.height = height
         old_surface = self.surface if hasattr(self, 'surface') else None
         self.surface = pygame.Surface((width, height))
-        self.surface.fill(colors["DATA_PANEL_BG"])
+        self.surface.fill(self._get_background_color(config))
         if old_surface:
             self.surface.blit(old_surface, (0, 0))
 
@@ -2623,27 +2636,50 @@ class Echosounder:
             
             for _ in range(lineas_a_dibujar):
                 self.surface.blit(self.surface, (-1, 0))
-                pygame.draw.rect(self.surface, colors["DATA_PANEL_BG"], (self.width-1, 0, 1, self.height))
+                pygame.draw.rect(self.surface, self._get_background_color(config), (self.width-1, 0, 1, self.height))
                 self.distancia_barco += 0.5
                 self._dibujar_scanline(self.width - 1, config)
 
-    def draw(self, screen, dest_rect, config):
-        screen.blit(pygame.transform.scale(self.surface, dest_rect.size), dest_rect)
-        
+    def _draw_grid(self, screen, dest_rect, config):
         rango = config.get('sonda_escala', 300.0)
-        if rango == 0: return
-        factor = dest_rect.height / rango
-        paso_grid = 50 if rango < 500 else 100
-        for m in range(0, int(rango), paso_grid):
-            y = dest_rect.top + m * factor
-            pygame.draw.line(screen, (255, 255, 255, 50), (dest_rect.left, y), (dest_rect.right, y), 1)
-            lbl = self.font.render(str(m), True, (150, 150, 150))
-            screen.blit(lbl, (dest_rect.right - 40, y))
+        shift = config.get('sonda_desplazar_esc', 0)
+        if rango <= 0: return
+
+        # Define the depths and their corresponding y-positions for the simplified display
+        depths_to_label = {
+            int(shift): dest_rect.top,
+            int(shift + rango / 2): dest_rect.top + dest_rect.height / 2,
+            int(shift + rango): dest_rect.bottom -1 # -1 to keep it fully inside
+        }
+
+        for depth, y_pos in depths_to_label.items():
+            y_pos_int = int(y_pos)
             
+            # Draw the horizontal line
+            pygame.draw.line(screen, (255, 255, 255, 50), (dest_rect.left, y_pos_int), (dest_rect.right, y_pos_int), 1)
+
+            # Prepare the label
+            lbl = self.font.render(str(depth), True, (150, 150, 150))
+
+            # Position and draw the label, clamped to the view area
+            label_y = y_pos_int - lbl.get_height() / 2
+            label_y = max(dest_rect.top, min(dest_rect.bottom - lbl.get_height(), label_y))
+
+            screen.blit(lbl, (dest_rect.right - 40, label_y))
+
+    def _draw_info(self, screen, dest_rect, config):
         draft = config.get('sonda_ajuste_calado', 0)
         txt_prof = self.fuente_info.render(f"{(self.last_profundidad + draft):.1f}m", True, (255, 255, 255))
         pygame.draw.rect(screen, (0,0,0), (dest_rect.left + 10, dest_rect.bottom - 40, 100, 30))
         screen.blit(txt_prof, (dest_rect.left + 20, dest_rect.bottom - 35))
+
+    def draw(self, screen, dest_rect, config):
+        # Blit the main surface which contains the echosounder data
+        screen.blit(pygame.transform.scale(self.surface, dest_rect.size), dest_rect)
+
+        # Draw the grid and other info on top
+        self._draw_grid(screen, dest_rect, config)
+        self._draw_info(screen, dest_rect, config)
 
 
 # --- Clase Cardumen ---
@@ -3224,7 +3260,7 @@ cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
 # --- Inicialización del Sistema Sonda ---
-echosounder_sim = Echosounder(100, 100, current_colors) # Initial size, will be resized
+echosounder_sim = Echosounder(100, 100, current_colors, menu.options) # Initial size, will be resized
 # ---
 
 # --- Estado de Inicialización Geográfica del Cardumen ---
@@ -3629,7 +3665,7 @@ while not hecho:
     # --- Update Echosounder System ---
     if modo_presentac in ['COMBI-1', 'COMBI-2']:
         if sounder_rect and (sounder_rect.width != echosounder_sim.width or sounder_rect.height != echosounder_sim.height):
-             echosounder_sim.resize(sounder_rect.width, sounder_rect.height, current_colors)
+             echosounder_sim.resize(sounder_rect.width, sounder_rect.height, current_colors, menu.options)
         echosounder_sim.update(delta_tiempo_s, menu.options, current_colors)
     # --- Fin Actualización y Lógica del Cardumen ---
 
