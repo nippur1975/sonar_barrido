@@ -470,7 +470,7 @@ class MenuSystem:
             'sonda_avance_imagen': '2/1',
             'sonda_curva_color': 'LINEAL',
             'sonda_anular_color': 0,
-            'sonda_ajuste_calado': 0,
+            'sonda_ajuste_calado': 200,
 
             # Opciones de la pestaña SISTEMA
             'iluminacion': 5,
@@ -2615,6 +2615,33 @@ class Echosounder:
                 
                 self.surface.set_at((x, y_draw), COLORES_ECO[color_index])
 
+        # MAIN BANG (Efecto de Quilla / Transmisión)
+        # El menú entrega valores enteros (ej. 50), dividimos por 10 para obtener metros (5.0m)
+        calado = (200 - config.get('sonda_ajuste_calado', 200)) / 10.0
+
+        y_quilla = int((calado - shift) * factor_m_a_px)
+
+        if y_quilla > 0:
+            # Dibujar desde la superficie (0) hasta la profundidad de la quilla
+            for y in range(0, min(y_quilla, self.height)):
+                # Ruido de saturación: Rojo intenso arriba, degradando a naranja/amarillo
+                # Probabilidad alta (0.9) para que se vea sólido como en las Furuno reales
+                if random.random() < 0.9:
+                    dist_relativa = y / y_quilla # 0 (superficie) a 1 (quilla)
+
+                    if dist_relativa < 0.3: color = COLORES_ECO[8]   # Rojo Oscuro (Saturación total)
+                    elif dist_relativa < 0.6: color = COLORES_ECO[7] # Rojo
+                    elif dist_relativa < 0.8: color = COLORES_ECO[5] # Naranja
+                    else: color = COLORES_ECO[4]                     # Amarillo (Borde de la quilla)
+
+                    self.surface.set_at((x, y), color)
+
+            # Línea de separación de quilla (Punteada visualmente)
+            # Dibuja un punto blanco cada 4 píxeles horizontales
+            if int(x) % 4 == 0:
+                 if y_quilla < self.height and y_quilla >= 0:
+                    self.surface.set_at((x, y_quilla), (255, 255, 255))
+
     def update(self, dt_s, config, colors):
         rango = config.get('sonda_escala', 300.0)
         
@@ -2673,12 +2700,36 @@ class Echosounder:
         screen.blit(txt_prof, (dest_rect.left + 20, dest_rect.bottom - 35))
 
     def draw(self, screen, dest_rect, config):
-        # Blit the main surface which contains the echosounder data
+        # 1. Dibujar la superficie principal (historial de ecos)
         screen.blit(pygame.transform.scale(self.surface, dest_rect.size), dest_rect)
         
-        # Draw the grid and other info on top
+        # 2. Dibujar la grilla y la información de texto
         self._draw_grid(screen, dest_rect, config)
         self._draw_info(screen, dest_rect, config)
+
+        # --- CÓDIGO NUEVO: MARCADOR DE QUILLA (DRAFT) ---
+        calado = (200 - config.get('sonda_ajuste_calado', 200)) / 10.0
+        rango = config.get('sonda_escala', 300.0)
+        shift = config.get('sonda_desplazar_esc', 0)
+
+        if rango > 0:
+            # Calcular posición Y del calado en la pantalla actual
+            # (calado - shift) porque si hacemos shift hacia abajo, la quilla sube visualmente
+            factor_escala_visual = dest_rect.height / rango
+            y_quilla_relativa = (calado - shift) * factor_escala_visual
+            y_quilla_screen = dest_rect.top + y_quilla_relativa
+
+            # Solo dibujar si está dentro del área visible de la sonda
+            if dest_rect.top <= y_quilla_screen <= dest_rect.bottom:
+                # Dibujar un pequeño triángulo rojo en el borde izquierdo
+                punto_izq = (dest_rect.left, y_quilla_screen)
+                punto_arr = (dest_rect.left + 10, y_quilla_screen - 5)
+                punto_aba = (dest_rect.left + 10, y_quilla_screen + 5)
+
+                pygame.draw.polygon(screen, (255, 0, 0), [punto_izq, punto_arr, punto_aba])
+
+                # Opcional: Una línea fina roja horizontal a través de la pantalla
+                # pygame.draw.line(screen, (255, 0, 0), (dest_rect.left, y_quilla_screen), (dest_rect.right, y_quilla_screen), 1)
 
 
 # --- Clase Cardumen ---
