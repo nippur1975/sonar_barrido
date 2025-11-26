@@ -4118,25 +4118,24 @@ while not hecho:
     pygame.draw.rect(pantalla, current_colors["DATA_PANEL_BORDER"], unified_data_box_dims, 2)
 
  # Slot 1: VELOCIDAD
-    if menu.options.get('mensaje_veloc') == 'ON':
-        text_surface_longitud = font.render(texto_longitud, True, current_colors["PRIMARY_TEXT"]) # texto_longitud is "VELOC DEL BARCO"
-        text_rect_longitud = text_surface_longitud.get_rect()
-        text_rect_longitud.left = unified_data_box_dims[0] + 5 
-        text_rect_longitud.top = unified_data_box_dims[1] + 5 
-        screen.blit(text_surface_longitud, text_rect_longitud)
+    text_surface_longitud = font.render(texto_longitud, True, current_colors["PRIMARY_TEXT"]) # texto_longitud is "VELOC DEL BARCO"
+    text_rect_longitud = text_surface_longitud.get_rect()
+    text_rect_longitud.left = unified_data_box_dims[0] + 5
+    text_rect_longitud.top = unified_data_box_dims[1] + 5
+    screen.blit(text_surface_longitud, text_rect_longitud)
 
-        if speed_str == "N/A":
-            display_speed_text = "N/A"
-        else:
-            # Assuming speed_str is like "X.X Knots" or just "X.X" if NMEA is different
-            numeric_part_speed = speed_str.replace(" Knots", "").strip()
-            display_speed_text = f"{numeric_part_speed} kn"
+    if speed_str == "N/A":
+        display_speed_text = "N/A"
+    else:
+        # Assuming speed_str is like "X.X Knots" or just "X.X" if NMEA is different
+        numeric_part_speed = speed_str.replace(" Knots", "").strip()
+        display_speed_text = f"{numeric_part_speed} kn"
 
-        text_surface_speed_data = font_size_54.render(display_speed_text, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
-        text_rect_speed_data = text_surface_speed_data.get_rect()
-        text_rect_speed_data.right = unified_data_box_dims[0] + unified_data_box_dims[2] - 5
-        text_rect_speed_data.bottom = unified_data_box_dims[1] + 100 - 8 
-        screen.blit(text_surface_speed_data, text_rect_speed_data)
+    text_surface_speed_data = font_size_54.render(display_speed_text, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
+    text_rect_speed_data = text_surface_speed_data.get_rect()
+    text_rect_speed_data.right = unified_data_box_dims[0] + unified_data_box_dims[2] - 5
+    text_rect_speed_data.bottom = unified_data_box_dims[1] + 100 - 8
+    screen.blit(text_surface_speed_data, text_rect_speed_data)
 
     # Slot 2: RUMBO
     y_offset_rumbo = unified_data_box_dims[1] + 100 + 5 # Start of RUMBO's 100px section + 5px padding from VELOCIDAD section
@@ -4351,6 +4350,21 @@ while not hecho:
     
         # --- End Display Calculated Target Data ---
 
+    # --- Speed Warning Message ---
+    if menu.options.get('mensaje_veloc') == 'ON' and speed_str != "N/A":
+        try:
+            # Extraer la parte numérica de la cadena de velocidad
+            speed_value_str = speed_str.replace(" Knots", "").strip()
+            speed_value = float(speed_value_str)
+            if speed_value > 16:
+                warning_text = "Max allowable speed during raising transducer is 16 kt"
+                warning_surface = font_very_large.render(warning_text, True, ROJO)
+                warning_rect = warning_surface.get_rect(center=(circle_center_x, circle_center_y))
+                pantalla.blit(warning_surface, warning_rect)
+        except (ValueError, IndexError):
+            # En caso de que speed_str no sea un número válido, ignorar silenciosamente
+            pass
+    # --- End Speed Warning Message ---
 
     # --- Draw Custom "+" Cursor ---
     if ui_state["show_plus_cursor"]:
