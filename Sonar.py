@@ -2679,6 +2679,9 @@ class Echosounder:
         # Draw the grid and other info on top
         self._draw_grid(screen, dest_rect, config)
         self._draw_info(screen, dest_rect, config)
+        if config.get('modo_presentac') == 'COMBI-2':
+            # Dibuja una línea roja para la quilla
+            pygame.draw.line(screen, (255, 0, 0), (dest_rect.left, dest_rect.top), (dest_rect.right, dest_rect.top), 2)
 
 
 # --- Clase Cardumen ---
