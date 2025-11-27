@@ -2245,6 +2245,283 @@ screen = pygame.display.set_mode(dimensiones, pygame.RESIZABLE)
 pygame.display.set_caption("SIMULADOR SONAR")
 pantalla = screen # Restaurar la asignación de pantalla para que sea la misma superficie que screen
 
+# --- NEW ECHO GENERATION CONSTANTS AND FUNCTIONS ---
+# Resolución alta para el simulador de eco
+NUM_ANGULOS = 1440
+NUM_RANGOS = 500
+
+# --- PALETA FURUNO CSH-5L ---
+COLORES_PALETTE = np.array([
+    [0, 0, 0],         # 0
+    [0, 5, 25],        # 1
+    [0, 20, 60],       # 2
+    [0, 40, 100],      # 3
+    [0, 70, 160],      # 4
+    [0, 120, 220],     # 5
+    [0, 180, 230],     # 6
+    [0, 220, 180],     # 7
+    [40, 220, 40],     # 8
+    [100, 255, 0],     # 9
+    [180, 255, 0],     # 10
+    [255, 255, 0],     # 11
+    [255, 200, 0],     # 12
+    [255, 140, 0],     # 13
+    [255, 80, 0],      # 14
+    [255, 0, 0],       # 15
+    [200, 0, 0]        # 16
+], dtype=np.uint8)
+
+def value_noise_2d(width, height, scale_x, scale_y, seed):
+    np.random.seed(seed)
+    # Crear una cuadrícula de valores aleatorios
+    # Asegurar que nx y ny sean al menos 2 para evitar errores de índice
+    nx = max(2, int(width / scale_x))
+    ny = max(2, int(height / scale_y))
+    grid = np.random.rand(ny, nx)
+
+    # Coordenadas para interpolación
+    x = np.linspace(0, nx - 1, width)
+    y = np.linspace(0, ny - 1, height)
+    xv, yv = np.meshgrid(x, y)
+
+    xi = xv.astype(int)
+    yi = yv.astype(int)
+    xf = xv - xi
+    yf = yv - yi
+
+    # Asegurar índices dentro de los límites
+    xi = np.clip(xi, 0, nx - 2)
+    yi = np.clip(yi, 0, ny - 2)
+
+    # Obtener valores de las esquinas de la celda
+    c00 = grid[yi, xi]
+    c10 = grid[yi, xi + 1]
+    c01 = grid[yi + 1, xi]
+    c11 = grid[yi + 1, xi + 1]
+
+    # Interpolación suave (Smoothstep)
+    sx = xf * xf * (3 - 2 * xf)
+    sy = yf * yf * (3 - 2 * yf)
+
+    # Interpolación bilineal
+    c0 = c00 + sx * (c10 - c00)
+    c1 = c01 + sx * (c11 - c01)
+    noise = c0 + sy * (c1 - c0)
+
+    return noise
+
+def generar_eco_irregular(ancho_a, ancho_r, seed):
+    np.random.seed(seed)
+
+    # Márgenes más amplios para permitir la deformación
+    margen_a = int(ancho_a * 1.8)
+    margen_r = int(ancho_r * 1.8)
+
+    # Asegurar dimensiones mínimas
+    if margen_a < 2: margen_a = 2
+    if margen_r < 2: margen_r = 2
+
+    a = np.arange(-margen_a, margen_a)
+    r = np.arange(-margen_r, margen_r)
+    aa, rr = np.meshgrid(a, r)
+    h, w = aa.shape
+
+    if h < 2 or w < 2: # Fallback para dimensiones muy pequeñas
+        return np.zeros((w, h))
+
+    # 1. DEFORMACIÓN DE DOMINIO (Warping)
+    warp_scale = min(ancho_a, ancho_r) * 0.7
+    if warp_scale < 1: warp_scale = 1
+
+    warp_x = value_noise_2d(w, h, warp_scale, warp_scale, seed)
+    warp_y = value_noise_2d(w, h, warp_scale, warp_scale, seed + 1)
+
+    # Cantidad de distorsión
+    disp_amount_a = ancho_a * 0.5
+    disp_amount_r = ancho_r * 0.5
+
+    # Coordenadas distorsionadas
+    aa_warped = aa + (warp_x - 0.5) * disp_amount_a
+    rr_warped = rr + (warp_y - 0.5) * disp_amount_r
+
+    # 2. FORMA BASE
+    denom_a = (ancho_a * 0.5) if ancho_a > 0 else 1
+    denom_r = (ancho_r * 0.5) if ancho_r > 0 else 1
+
+    dist_norm = (aa_warped / denom_a)**2 + (rr_warped / denom_r)**2
+    densidad_base = np.exp(-dist_norm * 1.8)
+
+    # 3. TEXTURA Y ROTURA
+    texture_scale = min(ancho_a, ancho_r) * 0.3
+    if texture_scale < 1: texture_scale = 1
+
+    texture = value_noise_2d(w, h, texture_scale*1.2, texture_scale, seed + 2)
+    edge_noise = np.random.rand(h, w)
+
+    eco = densidad_base * (0.3 + 0.7 * texture)
+
+    breakup_mask = np.where(eco > 0.5, 1.0, edge_noise)
+    eco *= breakup_mask
+
+    # 4. INTENSIDAD Y NÚCLEO
+    eco *= 35.0
+    eco[densidad_base > 0.65] += 6.0
+
+    return np.clip(eco, 0, 16).T
+
+class SonarEchoSimulator:
+    def __init__(self, radius_pixels):
+        self.radius_pixels = radius_pixels
+        self.diameter = 2 * radius_pixels
+        self.buffer_polar = np.zeros((NUM_ANGULOS, NUM_RANGOS), dtype=float)
+        self.background_noise = np.random.uniform(0, 2.0, (NUM_ANGULOS, NUM_RANGOS))
+
+        # Superficie persistente para el eco
+        self.surface = pygame.Surface((self.diameter, self.diameter))
+        self.screen_array = np.zeros((self.diameter, self.diameter, 3), dtype=np.uint8)
+
+        self.init_maps()
+
+    def init_maps(self):
+        # Crear mapas de coordenadas cartesianas a polares
+        x = np.arange(self.diameter)
+        y = np.arange(self.diameter)
+        mapa_x, mapa_y = np.meshgrid(x, y)
+
+        dx = mapa_x - self.radius_pixels
+        dy = mapa_y - self.radius_pixels # Invertido en Pygame? dy normalmente es positivo hacia abajo.
+        # atan2(y, x). En Pygame y crece hacia abajo.
+        # Queremos 0 grados arriba (Norte).
+        # atan2(dy, dx) -> 0 es derecha (Este).
+        # Para que 0 sea Arriba (Norte), restamos 90 o ajustamos componentes.
+        # atan2(dx, -dy) da 0 en Norte (si -dy es positivo -> arriba).
+
+        self.mapa_dist = np.sqrt(dx**2 + dy**2).T
+        # Angulo en grados, 0 en el Norte (Arriba), sentido horario
+        # atan2(dx, -dy) produce: Norte(0,1)->0, Este(1,0)->90, Sur(0,-1)->180/-180, Oeste(-1,0)->-90
+        self.mapa_ang = ((np.degrees(np.arctan2(dx, -dy))) % 360).T
+
+    def resize(self, new_radius):
+        if new_radius != self.radius_pixels and new_radius > 0:
+            self.radius_pixels = new_radius
+            self.diameter = 2 * new_radius
+            self.surface = pygame.Surface((self.diameter, self.diameter))
+            self.screen_array = np.zeros((self.diameter, self.diameter, 3), dtype=np.uint8)
+            self.init_maps()
+
+    def update_background_noise(self):
+        fresh_noise = np.random.uniform(0, 2.5, (NUM_ANGULOS, NUM_RANGOS))
+        self.background_noise = self.background_noise * 0.5 + fresh_noise * 0.5
+        self.buffer_polar = self.background_noise.copy()
+
+    def inject_echo(self, dist_px, angulo_deg, grosor_fisico_m, ancho_fisico_m, rango_actual_m, seed=123):
+        # dist_px: Distancia en pixeles desde el centro
+        # angulo_deg: Angulo relativo (0 es arriba/proa)
+        # rango_actual_m: Rango total del sonar en metros (para escala)
+
+        if rango_actual_m <= 0: return
+
+        # Convertir dist_px a indice de rango en el buffer (0..NUM_RANGOS)
+        # display_radius_pixels corresponde a rango_actual_m
+        # buffer rango es 0..NUM_RANGOS
+        # factor: NUM_RANGOS / display_radius_pixels
+        factor_dist_to_idx = NUM_RANGOS / self.radius_pixels
+        idx_rng_center = int(dist_px * factor_dist_to_idx)
+
+        if idx_rng_center >= NUM_RANGOS: return
+
+        # Calcular dimensiones en el espacio del buffer
+        # Ancho fisico (metros) a pixeles del buffer
+        # pixels_buffer_por_metro = NUM_RANGOS / rango_actual_m
+        factor_m_to_buffer_idx = NUM_RANGOS / rango_actual_m
+
+        ancho_r_buffer = int(grosor_fisico_m * factor_m_to_buffer_idx)
+
+        # Ancho angular
+        # angulo = 2 * atan((ancho/2) / dist)
+        dist_m = (dist_px / self.radius_pixels) * rango_actual_m
+        dist_segura = max(10, dist_m)
+        angulo_visual_rad = 2 * math.atan((ancho_fisico_m / 2) / dist_segura)
+        angulo_visual_deg = math.degrees(angulo_visual_rad)
+
+        grados_por_indice = 360 / NUM_ANGULOS
+        ancho_a_buffer = int(angulo_visual_deg / grados_por_indice)
+
+        # Asegurar minimos
+        ancho_r_buffer = max(5, ancho_r_buffer)
+        ancho_a_buffer = max(5, ancho_a_buffer)
+
+        # Indices angulares
+        # angulo_deg es 0..360. Buffer es 0..NUM_ANGULOS
+        idx_ang_center = int(angulo_deg / grados_por_indice)
+
+        # Generar mancha
+        mancha = generar_eco_irregular(ancho_a_buffer, ancho_r_buffer, seed)
+
+        w_a, w_r = mancha.shape
+        start_a = idx_ang_center - w_a // 2
+        start_r = idx_rng_center - w_r // 2
+
+        # Manejo de coordenadas circulares para angulo
+        idx_a_target = np.arange(start_a, start_a + w_a) % NUM_ANGULOS
+
+        # Clipping para rango
+        r_min = max(0, start_r)
+        r_max = min(NUM_RANGOS, start_r + w_r)
+
+        src_r_start = r_min - start_r
+        src_r_end = src_r_start + (r_max - r_min)
+
+        if r_max > r_min:
+            # Mezclar con maximo
+            zona = self.buffer_polar[idx_a_target[:, None], np.arange(r_min, r_max)]
+            mancha_crop = mancha[:, src_r_start:src_r_end]
+            self.buffer_polar[idx_a_target[:, None], np.arange(r_min, r_max)] = np.maximum(zona, mancha_crop)
+
+    def render_sweep(self, current_sweep_radius_px, sweep_speed_px_per_frame):
+        # Simular el barrido radial actualizando solo la banda correspondiente en la imagen final
+
+        # Mapear radio de pixeles a indices de rango internos
+        # Pero mapa_dist ya esta en pixeles (0..radius_pixels)
+
+        # Jitter para reducir aliasing/moire
+        jitter = np.random.uniform(-0.5, 0.5, self.mapa_ang.shape)
+
+        # Mapeo de coordenadas de pantalla (pixeles) a buffer polar (indices)
+        idx_ang = ((self.mapa_ang + jitter) / (360/NUM_ANGULOS)).astype(int) % NUM_ANGULOS
+
+        # mapa_dist va de 0 a radius_pixels. Queremos mapear a 0..NUM_RANGOS
+        idx_rng = (self.mapa_dist * (NUM_RANGOS/self.radius_pixels)).astype(int)
+        idx_rng = np.clip(idx_rng, 0, NUM_RANGOS-1)
+
+        # Definir la banda de actualizacion basada en el barrido actual
+        # current_sweep_radius_px es donde esta el "cabezal"
+        r_min = current_sweep_radius_px
+        r_max = current_sweep_radius_px + sweep_speed_px_per_frame + 2 # Un poco mas ancho para cubrir gaps
+
+        # Mascara de pixeles a actualizar en este frame
+        mascara = (self.mapa_dist >= r_min) & (self.mapa_dist < r_max) & (self.mapa_dist < self.radius_pixels)
+
+        if np.any(mascara):
+            # Obtener valores del buffer polar para esos pixeles
+            valores = self.buffer_polar[idx_ang[mascara], idx_rng[mascara]]
+
+            # Noise gating / limpieza
+            valores[(valores > 2.5) & (valores < 4.0)] = 0
+
+            # Mapear a colores
+            indices = np.clip(valores, 0, 16).astype(int)
+            pixels_nuevos = COLORES_PALETTE[indices]
+
+            # Actualizar el array de pantalla
+            self.screen_array[mascara] = pixels_nuevos
+
+            # Blit al surface de pygame
+            # surfarray.blit_array vuelca todo el array a la superficie.
+            # Si es lento, podriamos usar pixels3d reference, pero blit_array suele ser optimizado.
+            # Dado que solo cambiamos una parte del array, volcarlo todo es un poco redundante pero seguro.
+            pygame.surfarray.blit_array(self.surface, self.screen_array)
+
 # Define Range Presets and Current Range State Variable (Moved up)
 RANGE_PRESETS_METERS = [50, 85, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 1200, 1600]
 RANGE_PRESETS_BRAZAS = [50, 75, 100, 125, 150, 175, 200, 225, 250, 300, 400, 500, 600, 800]
@@ -2460,7 +2737,8 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
                 dy = mouse_cursor_y - circle_center_y_param
                 visual_angle_rad = math.atan2(dx, -dy)
                 visual_bearing_deg = (math.degrees(visual_angle_rad) + 360) % 360
-                true_bearing_deg = (visual_bearing_deg + effective_heading) % 360
+                # Use current_ship_heading instead of effective_heading to avoid incorporating bow adjustment into marker creation
+                true_bearing_deg = (visual_bearing_deg + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 if distance_m_from_ship < 0: distance_m_from_ship = 0
@@ -2524,7 +2802,8 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
                 dy = mouse_cursor_y - circle_center_y_param # Pygame y is inverted for visual angle
                 visual_angle_rad = math.atan2(dx, -dy) # atan2(x,y) for bearing from North axis
                 visual_bearing_deg = (math.degrees(visual_angle_rad) + 360) % 360
-                true_bearing_deg = (visual_bearing_deg + effective_heading) % 360
+                # Use current_ship_heading instead of effective_heading to avoid incorporating bow adjustment into marker creation
+                true_bearing_deg = (visual_bearing_deg + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 if distance_m_from_ship < 0: distance_m_from_ship = 0 # Should not happen with sqrt
@@ -4447,6 +4726,12 @@ cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
 echosounder_sim = Echosounder(100, 100, current_colors, menu.options) # Initial size, will be resized
 # ---
 
+# --- Inicialización del Simulador de Eco ---
+# Initial display radius is unknown or initial_width-dependent
+initial_display_radius = 350 # Default estimation
+echo_simulator = SonarEchoSimulator(initial_display_radius)
+# ---
+
 # --- Estado de Inicialización Geográfica del Cardumen ---
 cardumen_posicion_geografica_inicializada = False
 # --- Fin Estado de Inicialización Geográfica del Cardumen ---
@@ -4558,8 +4843,12 @@ while not hecho:
     circle_center_y = circle_origin_y + circle_height // 2
     display_radius_pixels = circle_width // 2
 
+    # Resize echo simulator if radius changes
+    if echo_simulator.radius_pixels != display_radius_pixels:
+        echo_simulator.resize(display_radius_pixels)
+
     # Calculate effective heading for use in this frame's calculations
-    effective_heading = (current_ship_heading + menu.options.get('ajuste_proa', 0)) % 360
+    effective_heading = (current_ship_heading - menu.options.get('ajuste_proa', 0)) % 360
 
     # --- Mouse Tracking Logic ---
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -4615,7 +4904,7 @@ while not hecho:
 
                 # bearing_deg_normalized is bearing relative to SCREEN UP.
                 # We need bearing relative to TRUE NORTH.
-                true_bearing_deg = (bearing_deg_normalized + effective_heading) % 360
+                true_bearing_deg = (bearing_deg_normalized + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 destination = geodesic(meters=s_cursor_meters).destination(point=start_point, bearing=true_bearing_deg)
@@ -4791,7 +5080,7 @@ while not hecho:
 
         sweep_increment_ppf = sweep_pixels_per_second / FPS
     
-    # --- Sonar Sweep Animation Logic ---
+    # --- Sonar Sweep Animation Logic (Update State Only) ---
     if menu.options.get("transmision") == "ON":
         current_sweep_radius_pixels += sweep_increment_ppf
         if current_sweep_radius_pixels > display_radius_pixels:
@@ -4803,7 +5092,6 @@ while not hecho:
         current_sweep_radius_pixels = 0
         if sonar_ping_sound and pygame.mixer.get_busy(): 
             sonar_ping_sound.stop() 
-            
     # --- End Sonar Sweep Animation Logic ---
     # --- End Sonar Sweep Parameter Calculation ---
 
@@ -4822,7 +5110,7 @@ while not hecho:
     pos_rel_cardumen = cardumen_simulado.get_posicion_relativa_barco(
         current_ship_lat_deg, # Puede ser None
         current_ship_lon_deg, # Puede ser None
-        current_ship_heading, # Es 0.0 si no hay NMEA
+        effective_heading, # Usar effective_heading para aplicar ajuste de proa
         datos_nmea_disponibles=nmea_para_cardumen
     )
 
@@ -4852,6 +5140,30 @@ while not hecho:
              echosounder_sim.resize(sounder_rect.width, sounder_rect.height, current_colors, menu.options)
         echosounder_sim.update(delta_tiempo_s, menu.options, current_colors, pos_rel_cardumen)
     # --- Fin Actualización y Lógica del Cardumen ---
+
+    # --- Update and Render Echo Simulator (Now that we have target info) ---
+    if menu.options.get("transmision") == "ON":
+        echo_simulator.update_background_noise() # 1. Reset/Update Noise Buffer
+
+        # 2. Inject Echo if available
+        if 'info_interseccion_cardumen' in locals() and info_interseccion_cardumen and \
+           info_interseccion_cardumen.get("intensidad_factor", 0) > 0.05:
+
+            dist_px = (info_interseccion_cardumen["dist_slant_m"] / max_rango_actual_metros) * display_radius_pixels if max_rango_actual_metros > 0 else 0
+            grosor_sim = 80 # Meters
+            ancho_sim = 180 # Meters
+
+            echo_simulator.inject_echo(
+                dist_px,
+                info_interseccion_cardumen["rumbo_relativo_deg"],
+                grosor_sim,
+                ancho_sim,
+                max_rango_actual_metros
+            )
+
+        # 3. Render Sweep to Surface
+        echo_simulator.render_sweep(int(current_sweep_radius_pixels), int(sweep_increment_ppf) + 1)
+    # --- End Update Echo Simulator ---
 
     # --- Lógica de Programación y Reproducción del Sonido del Eco con Retardo ---
     if menu.options.get("transmision") == "ON" and sonar_ping_sound and \
@@ -5043,7 +5355,7 @@ while not hecho:
                 screen_bearing_deg = math.degrees(marker['screen_bearing_rad'])
                 # true_marker_bearing_deg is relative to true North
                 # current_ship_heading is true heading. screen_bearing_deg is relative to ship's current screen up.
-                true_marker_bearing_deg = (effective_heading + screen_bearing_deg + 360) % 360
+                true_marker_bearing_deg = (current_ship_heading + screen_bearing_deg + 360) % 360
                 
                 distance_m = marker['initial_distance_meters'] # Already in meters
                 
@@ -5162,39 +5474,16 @@ while not hecho:
     draw_compass_rose(pantalla, center_x, center_y, main_radius, font, current_colors["COMPASS_ROSE"], current_ship_heading)
 
     # --- Draw Sonar Sweep ---
-    if current_sweep_radius_pixels > 0 and current_sweep_radius_pixels <= display_radius_pixels:
-        # Optimization: Re-create surface only on size change
-        current_sweep_surface_size = (display_radius_pixels * 2, display_radius_pixels * 2)
-        if sweep_surface is None or current_sweep_surface_size != last_sweep_surface_size:
-            if current_sweep_surface_size[0] > 0 and current_sweep_surface_size[1] > 0:
-                sweep_surface = pygame.Surface(current_sweep_surface_size, pygame.SRCALPHA)
-                last_sweep_surface_size = current_sweep_surface_size
-        
-        if sweep_surface:
-            # Draw a semi-transparent blue circle for the sweep
-            sweep_surface.fill((0, 0, 0, 0)) # Clear the surface for transparency
-            sweep_color_with_alpha = (*current_colors["SWEEP"], 150)
-            pygame.draw.circle(sweep_surface, sweep_color_with_alpha,
-                               (display_radius_pixels, display_radius_pixels), # Center of the temp surface
-                               int(current_sweep_radius_pixels), 2) # Thickness 2
-            pantalla.blit(sweep_surface, (center_x - display_radius_pixels, center_y - display_radius_pixels))
+    # Disabled old sweep drawing as it is now handled by echo_simulator.render_sweep
+    # and blitted with echo_simulator.surface
     # --- End Draw Sonar Sweep ---
 
     # Draw the center icon
     draw_center_icon(pantalla, center_x, center_y, 36, current_colors["CENTER_ICON"]) # Changed height to 36, thickness remains 5
 
-    # --- Dibujar Eco del Cardumen (MOVIDO ANTES DE ELEMENTOS DE UI SUPERPUESTOS) ---
-    if menu.options.get("transmision") == "ON":
-        if 'info_interseccion_cardumen' in locals() and info_interseccion_cardumen:
-            dibujar_eco_cardumen(
-                pantalla,
-                info_interseccion_cardumen,
-                circle_center_x,
-                circle_center_y,
-                display_radius_pixels,
-                max_rango_actual_metros,
-                current_gain
-            )
+    # --- Dibujar Eco del Cardumen (Nuevo Sistema) ---
+    # Blit the echo surface first (background for the sonar circle)
+    pantalla.blit(echo_simulator.surface, (circle_origin_x, circle_origin_y), special_flags=pygame.BLEND_ADD)
     # --- Fin Dibujar Eco del Cardumen ---
 
     # --- End Display Calculated Target Data ---
