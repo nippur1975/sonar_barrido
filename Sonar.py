@@ -4351,6 +4351,22 @@ while not hecho:
     
         # --- End Display Calculated Target Data ---
 
+    # --- Speed Warning Message ---
+    if menu.options.get('mensaje_veloc') == 'ON' and speed_str != "N/A":
+        try:
+            # Extraer la parte numérica de la cadena de velocidad
+            speed_value_str = speed_str.replace(" Knots", "").strip()
+            speed_value = float(speed_value_str)
+            if speed_value > 16:
+                warning_text = "Max allowable speed during raising transducer is 16 kt"
+                warning_surface = font_very_large.render(warning_text, True, ROJO)
+                warning_rect = warning_surface.get_rect(center=(circle_center_x, circle_center_y))
+                pantalla.blit(warning_surface, warning_rect)
+        except (ValueError, IndexError):
+            # En caso de que speed_str no sea un número válido, ignorar silenciosamente
+            pass
+    # --- End Speed Warning Message ---
+
 
     # --- Draw Custom "+" Cursor ---
     if ui_state["show_plus_cursor"]:
