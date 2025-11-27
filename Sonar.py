@@ -2460,7 +2460,8 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
                 dy = mouse_cursor_y - circle_center_y_param
                 visual_angle_rad = math.atan2(dx, -dy)
                 visual_bearing_deg = (math.degrees(visual_angle_rad) + 360) % 360
-                true_bearing_deg = (visual_bearing_deg + effective_heading) % 360
+                # Use current_ship_heading instead of effective_heading to avoid incorporating bow adjustment into marker creation
+                true_bearing_deg = (visual_bearing_deg + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 if distance_m_from_ship < 0: distance_m_from_ship = 0
@@ -2524,7 +2525,8 @@ def handle_key_events(event_key, circle_center_x_param, circle_center_y_param, d
                 dy = mouse_cursor_y - circle_center_y_param # Pygame y is inverted for visual angle
                 visual_angle_rad = math.atan2(dx, -dy) # atan2(x,y) for bearing from North axis
                 visual_bearing_deg = (math.degrees(visual_angle_rad) + 360) % 360
-                true_bearing_deg = (visual_bearing_deg + effective_heading) % 360
+                # Use current_ship_heading instead of effective_heading to avoid incorporating bow adjustment into marker creation
+                true_bearing_deg = (visual_bearing_deg + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 if distance_m_from_ship < 0: distance_m_from_ship = 0 # Should not happen with sqrt
@@ -4419,12 +4421,12 @@ lat_cardumen_placeholder = 0.0
 lon_cardumen_placeholder = 0.0
 
 # Profundidad centro: 40m (sup) + 60m (altura) / 2 = 70m desde superficie.
-profundidad_centro_cardumen_m = 70
-velocidad_cardumen_nudos = 4
-curso_cardumen_grados = 190
+profundidad_centro_cardumen_m = 60
+velocidad_cardumen_nudos = 8
+curso_cardumen_grados = 180
 radio_hor_cardumen_m = 200 / 2 # Diámetro 200m
 prof_sup_cardumen_m = 40
-prof_inf_cardumen_m = 100
+prof_inf_cardumen_m = 80
 
 cardumen_simulado = Cardumen(
     lat_inicial=lat_cardumen_placeholder,
@@ -4559,7 +4561,7 @@ while not hecho:
     display_radius_pixels = circle_width // 2
 
     # Calculate effective heading for use in this frame's calculations
-    effective_heading = (current_ship_heading + menu.options.get('ajuste_proa', 0)) % 360
+    effective_heading = (current_ship_heading - menu.options.get('ajuste_proa', 0)) % 360
 
     # --- Mouse Tracking Logic ---
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -4615,7 +4617,7 @@ while not hecho:
 
                 # bearing_deg_normalized is bearing relative to SCREEN UP.
                 # We need bearing relative to TRUE NORTH.
-                true_bearing_deg = (bearing_deg_normalized + effective_heading) % 360
+                true_bearing_deg = (bearing_deg_normalized + current_ship_heading) % 360
 
                 start_point = Point(latitude=current_ship_lat_deg, longitude=current_ship_lon_deg)
                 destination = geodesic(meters=s_cursor_meters).destination(point=start_point, bearing=true_bearing_deg)
@@ -4822,7 +4824,7 @@ while not hecho:
     pos_rel_cardumen = cardumen_simulado.get_posicion_relativa_barco(
         current_ship_lat_deg, # Puede ser None
         current_ship_lon_deg, # Puede ser None
-        current_ship_heading, # Es 0.0 si no hay NMEA
+        effective_heading, # Usar effective_heading para aplicar ajuste de proa
         datos_nmea_disponibles=nmea_para_cardumen
     )
 
@@ -5043,7 +5045,7 @@ while not hecho:
                 screen_bearing_deg = math.degrees(marker['screen_bearing_rad'])
                 # true_marker_bearing_deg is relative to true North
                 # current_ship_heading is true heading. screen_bearing_deg is relative to ship's current screen up.
-                true_marker_bearing_deg = (effective_heading + screen_bearing_deg + 360) % 360
+                true_marker_bearing_deg = (current_ship_heading + screen_bearing_deg + 360) % 360
                 
                 distance_m = marker['initial_distance_meters'] # Already in meters
                 
@@ -5778,6 +5780,7 @@ if serial_port_available and ser is not None:
 save_settings()
 # ---
 pygame.quit()
+
 
 
 
