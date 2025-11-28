@@ -5014,7 +5014,7 @@ while not hecho:
     
     calculate_target_data(target_markers, current_tilt_angle, s_max_for_calc, 
                            display_radius_pixels, current_unit, 
-                           (circle_center_x, circle_center_y), current_ship_heading)
+                           (circle_center_x, circle_center_y), effective_heading)
     # --- End Calculate Target Data ---
 
     # --- Update Marker Screen Positions based on Geo Pos ---
@@ -5024,10 +5024,10 @@ while not hecho:
     s_max_for_update = range_presets_map[current_unit][current_range_index]
 
     update_marker_screen_positions(target_markers, current_ship_lat_deg, current_ship_lon_deg,
-                                   current_ship_heading, circle_center_x, circle_center_y,
+                                   effective_heading, circle_center_x, circle_center_y,
                                    display_radius_pixels, s_max_for_update, current_unit)
     update_marker_screen_positions(triangle_markers, current_ship_lat_deg, current_ship_lon_deg,
-                                   current_ship_heading, circle_center_x, circle_center_y,
+                                   effective_heading, circle_center_x, circle_center_y,
                                    display_radius_pixels, s_max_for_update, current_unit)
     # --- End Update Marker Screen Positions ---
 
@@ -6020,7 +6020,7 @@ while not hecho:
     s_max_for_track_draw = range_presets_map[current_unit][current_range_index]
     
     draw_ship_track(pantalla, ship_track_points, 
-                    current_ship_lat_deg, current_ship_lon_deg, current_ship_heading,
+                    current_ship_lat_deg, current_ship_lon_deg, effective_heading,
                     circle_center_x, circle_center_y, display_radius_pixels,
                     s_max_for_track_draw, current_unit, current_colors["SHIP_TRACK"])
     # --- End Draw Ship Track ---
