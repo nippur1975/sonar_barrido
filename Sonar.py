@@ -1498,7 +1498,7 @@ class MenuSystem:
     def _get_default_options(self):
         return {
             # Opciones de la pestaña SONAR
-            'modo_presentac': 'COMBI-1',
+            'modo_presentac': 'COMBI-2',
             'potencia_tx': 8,
             'long_impulso': 8,
             'ciclo_tx': 10,
@@ -4019,43 +4019,89 @@ class Echosounder:
                         if random.random() < 0.1: 
                             self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 4)]) 
  
-        # --- 2. DIBUJO DEL CARDUMEN (NUEVO CÓDIGO) --- 
+        # --- 2. DIBUJO DEL CARDUMEN (NUEVO CÓDIGO MEJORADO PARA REALISMO) ---
         # Si tenemos datos y el barco está sobre el cardumen 
         if datos_cardumen: 
             dist_h = datos_cardumen.get("dist_horizontal_m", 10000) 
             radio_h = datos_cardumen.get("radio_horizontal_m", 0) 
+
+            # Ampliar un poco el radio efectivo para tener bordes suaves
+            radio_h_efectivo = radio_h * 1.2
              
-            # Si la distancia al centro es menor que el radio, estamos encima 
-            if dist_h < radio_h: 
-                prof_sup = datos_cardumen["profundidad_superior_m"] 
-                prof_inf = datos_cardumen["profundidad_inferior_m"] 
-                 
+            # Si la distancia al centro es menor que el radio efectivo
+            if dist_h < radio_h_efectivo:
+                # Intensidad Horizontal base (0.0 a 1.0) con curva suave
+                norm_dist_h = min(1.0, dist_h / radio_h_efectivo)
+                intensidad_horizontal = math.exp(-2.5 * norm_dist_h**2) # Gaussiana
+
+                # Variación orgánica vertical usando senos superpuestos basados en la posición (distancia_barco)
+                # para simular irregularidades en la parte superior e inferior del banco de peces.
+                t = self.distancia_barco
+                ondulacion_sup = math.sin(t * 0.15) * 3.0 + math.sin(t * 0.47) * 1.5 + math.sin(t * 1.1) * 0.8
+                ondulacion_inf = math.sin(t * 0.12 + 2.0) * 3.5 + math.sin(t * 0.33 + 1.0) * 2.0
+
+                prof_centro = datos_cardumen["profundidad_centro_m"]
+                altura_total = datos_cardumen["profundidad_inferior_m"] - datos_cardumen["profundidad_superior_m"]
+
+                # Variar la altura total ligeramente
+                altura_local = altura_total * (0.9 + 0.2 * math.sin(t * 0.05))
+
+                mitad_altura = altura_local / 2.0
+
+                # Definir límites superior e inferior locales
+                prof_sup_local = prof_centro - mitad_altura + ondulacion_sup
+                prof_inf_local = prof_centro + mitad_altura + ondulacion_inf
+
                 # Convertir profundidades a píxeles 
-                y_pez_sup = int((prof_sup - shift) * factor_m_a_px) 
-                y_pez_inf = int((prof_inf - shift) * factor_m_a_px) 
+                y_pez_sup = int((prof_sup_local - shift) * factor_m_a_px)
+                y_pez_inf = int((prof_inf_local - shift) * factor_m_a_px)
                  
-                # Calcular intensidad basada en qué tan cerca del centro del cardumen estamos 
-                # 1.0 en el centro, 0.0 en el borde 
-                intensidad_horizontal = 1.0 - (dist_h / radio_h) 
-                 
-                # Dibujar la columna de peces 
-                # Iteramos desde arriba hacia abajo 
-                for y_p in range(max(0, y_pez_sup), min(y_pez_inf, y_fondo)): # y_fondo limita para no dibujar debajo de la tierra 
+                # Dibujar la columna de peces píxel por píxel
+                # Iteramos desde arriba hacia abajo en la columna 'x'
+                for y_p in range(max(0, y_pez_sup - 5), min(y_pez_inf + 5, y_fondo)): # -5/+5 para bordes suaves
                     if 0 <= y_p < self.height: 
-                        # Probabilidad de dibujo basada en densidad simulada 
-                        if random.random() < (0.3 + intensidad_horizontal * 0.5): 
-                            # Elegir color basado en intensidad y aleatoriedad 
-                            rand_val = random.random() 
-                             
-                            # Núcleo del cardumen (Rojo/Naranja) 
-                            if intensidad_horizontal > 0.5 and rand_val > 0.3: 
-                                col = COLORES_ECO[7] # Rojo 
-                            elif intensidad_horizontal > 0.3 and rand_val > 0.3: 
-                                col = COLORES_ECO[5] # Naranja 
-                            else: 
-                                col = COLORES_ECO[3] # Verde/Amarillo 
-                                 
-                            self.surface.set_at((x, y_p), col) 
+                        # Calcular posición vertical normalizada dentro del cardumen (-1.0 a 1.0)
+                        centro_y_px = (y_pez_sup + y_pez_inf) / 2.0
+                        altura_px = max(1.0, y_pez_inf - y_pez_sup)
+
+                        dist_v_norm = (y_p - centro_y_px) / (altura_px / 2.0)
+
+                        # Perfil de densidad vertical (parabólico suave)
+                        perfil_vertical = max(0.0, 1.0 - abs(dist_v_norm)**2.5)
+
+                        # Ruido coherente vertical (usando funciones de seno para simular estructura)
+                        # Simula que los peces se agrupan en capas o nubes
+                        ruido_estructural = 0.5 + 0.5 * math.sin(y_p * 0.2 + t * 0.1)
+
+                        # Ruido aleatorio de alta frecuencia (grano)
+                        ruido_aleatorio = random.random()
+
+                        # Densidad final combinada
+                        densidad = intensidad_horizontal * perfil_vertical
+
+                        # Modulamos la densidad con el ruido para textura
+                        densidad *= (0.7 + 0.3 * ruido_estructural)
+                        densidad *= (0.8 + 0.4 * ruido_aleatorio)
+
+                        # Umbrales para colores sólidos (estilo sonda real)
+                        # Mapa: Azul -> Verde -> Amarillo -> Naranja -> Rojo -> Rojo Oscuro
+
+                        col = None
+                        if densidad > 0.85:
+                            col = COLORES_ECO[8] # Rojo Oscuro/Marrón (Núcleo denso)
+                        elif densidad > 0.65:
+                            col = COLORES_ECO[7] # Rojo (Muy denso)
+                        elif densidad > 0.45:
+                            col = COLORES_ECO[5] # Naranja
+                        elif densidad > 0.30:
+                            col = COLORES_ECO[4] # Amarillo
+                        elif densidad > 0.15:
+                            col = COLORES_ECO[3] # Verde
+                        elif densidad > 0.05:
+                            col = COLORES_ECO[1] # Azul (Bordes difusos)
+
+                        if col:
+                            self.surface.set_at((x, y_p), col)
  
         # --- 3. DIBUJO DEL FONDO MARINO (Mantenemos tu código igual) --- 
         grosor = int(15 + ganancia) 
@@ -4764,7 +4810,7 @@ lon_cardumen_placeholder = 0.0
 # Profundidad centro: 40m (sup) + 60m (altura) / 2 = 70m desde superficie.
 profundidad_centro_cardumen_m = 70
 velocidad_cardumen_nudos = 4
-curso_cardumen_grados = 190
+curso_cardumen_grados = 180
 radio_hor_cardumen_m = 200 / 2 # Diámetro 200m
 prof_sup_cardumen_m = 40
 prof_inf_cardumen_m = 100
@@ -4780,10 +4826,10 @@ cardumen_simulado = Cardumen(
     profundidad_inferior_m=prof_inf_cardumen_m
 )
 
-# Posición inicial simulada del cardumen: 600m en proa.
+# Posición inicial simulada del cardumen: 1200m en proa.
 # En nuestro sistema simulado sin NMEA, proa es +Y (Norte).
 cardumen_simulado.x_sim = 0  # Directamente en proa
-cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
+cardumen_simulado.y_sim = 1200 # A 1200m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
 # --- Inicialización del Sistema Sonda ---
