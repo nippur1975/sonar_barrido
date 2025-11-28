@@ -1498,7 +1498,7 @@ class MenuSystem:
     def _get_default_options(self):
         return {
             # Opciones de la pestaña SONAR
-            'modo_presentac': 'COMBI-1',
+            'modo_presentac': 'COMBI-2',
             'potencia_tx': 8,
             'long_impulso': 8,
             'ciclo_tx': 10,
@@ -4027,12 +4027,23 @@ class Echosounder:
              
             # Si la distancia al centro es menor que el radio, estamos encima 
             if dist_h < radio_h: 
-                prof_sup = datos_cardumen["profundidad_superior_m"] 
-                prof_inf = datos_cardumen["profundidad_inferior_m"] 
-                 
+                # Modulación elíptica para dar forma redondeada/natural al cardumen en la sonda
+                # Factor de forma (0.0 en los bordes, 1.0 en el centro)
+                factor_forma = math.sqrt(max(0, 1.0 - (dist_h / radio_h)**2))
+
+                prof_centro = datos_cardumen["profundidad_centro_m"]
+                altura_total = datos_cardumen["profundidad_inferior_m"] - datos_cardumen["profundidad_superior_m"]
+                mitad_altura = altura_total / 2.0
+
+                # Ajustar los límites superior e inferior según el perfil elíptico y añadir ruido para irregularidad
+                ruido_perfil = (random.random() - 0.5) * 5.0 # +/- 2.5 metros de variación en los bordes
+
+                prof_sup_local = prof_centro - (mitad_altura * factor_forma) + ruido_perfil
+                prof_inf_local = prof_centro + (mitad_altura * factor_forma) + ruido_perfil
+
                 # Convertir profundidades a píxeles 
-                y_pez_sup = int((prof_sup - shift) * factor_m_a_px) 
-                y_pez_inf = int((prof_inf - shift) * factor_m_a_px) 
+                y_pez_sup = int((prof_sup_local - shift) * factor_m_a_px)
+                y_pez_inf = int((prof_inf_local - shift) * factor_m_a_px)
                  
                 # Calcular intensidad basada en qué tan cerca del centro del cardumen estamos 
                 # 1.0 en el centro, 0.0 en el borde 
@@ -4043,7 +4054,15 @@ class Echosounder:
                 for y_p in range(max(0, y_pez_sup), min(y_pez_inf, y_fondo)): # y_fondo limita para no dibujar debajo de la tierra 
                     if 0 <= y_p < self.height: 
                         # Probabilidad de dibujo basada en densidad simulada 
-                        if random.random() < (0.3 + intensidad_horizontal * 0.5): 
+                        # Aumentar densidad en el centro vertical del cardumen
+                        if y_pez_inf > y_pez_sup:
+                            dist_v_norm = abs(y_p - (y_pez_sup + y_pez_inf)/2) / (abs(y_pez_inf - y_pez_sup)/2 + 0.1)
+                        else:
+                            dist_v_norm = 0
+
+                        probabilidad = (0.4 + intensidad_horizontal * 0.6) * (1.0 - dist_v_norm * 0.5)
+
+                        if random.random() < probabilidad:
                             # Elegir color basado en intensidad y aleatoriedad 
                             rand_val = random.random() 
                              
@@ -4764,7 +4783,7 @@ lon_cardumen_placeholder = 0.0
 # Profundidad centro: 40m (sup) + 60m (altura) / 2 = 70m desde superficie.
 profundidad_centro_cardumen_m = 70
 velocidad_cardumen_nudos = 4
-curso_cardumen_grados = 190
+curso_cardumen_grados = 180
 radio_hor_cardumen_m = 200 / 2 # Diámetro 200m
 prof_sup_cardumen_m = 40
 prof_inf_cardumen_m = 100
@@ -4780,10 +4799,10 @@ cardumen_simulado = Cardumen(
     profundidad_inferior_m=prof_inf_cardumen_m
 )
 
-# Posición inicial simulada del cardumen: 600m en proa.
+# Posición inicial simulada del cardumen: 1200m en proa.
 # En nuestro sistema simulado sin NMEA, proa es +Y (Norte).
 cardumen_simulado.x_sim = 0  # Directamente en proa
-cardumen_simulado.y_sim = 600 # A 600m hacia el "Norte" relativo del barco
+cardumen_simulado.y_sim = 1200 # A 1200m hacia el "Norte" relativo del barco
 # --- Fin Inicialización del Cardumen ---
 
 # --- Inicialización del Sistema Sonda ---
