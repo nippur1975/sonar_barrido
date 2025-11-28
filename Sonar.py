@@ -2357,18 +2357,14 @@ def generar_eco_irregular(ancho_a, ancho_r, seed):
     texture = value_noise_2d(w, h, texture_scale*1.2, texture_scale, seed + 2)
     edge_noise = np.random.rand(h, w)
     
-    # Reducir la influencia de la textura en el centro para un núcleo más sólido
-    eco = densidad_base * (0.6 + 0.4 * texture)
+    eco = densidad_base * (0.3 + 0.7 * texture)
     
     breakup_mask = np.where(eco > 0.5, 1.0, edge_noise)
     eco *= breakup_mask
 
     # 4. INTENSIDAD Y NÚCLEO
-    # Escalar a 0-15 permitiendo gradiente completo (Azul->Verde->Amarillo->Rojo)
-    eco *= 16.0 
-    
-    # Boost para asegurar el "Núcleo Duro" (Color 15) en el centro de alta densidad
-    eco[densidad_base > 0.85] = 16.0 
+    eco *= 35.0
+    eco[densidad_base > 0.65] += 6.0
     
     return np.clip(eco, 0, 15).T
 
@@ -3394,6 +3390,91 @@ def handle_action_button_click(event_pos, button_rect_to_check, action_key_name)
 # --- End Action Button Click Handling Helper ---
 
 
+def get_screen_line_circle_intersection(p1_screen, p2_screen, circle_center_x, circle_center_y, circle_radius_pixels):
+    # p1 is assumed to be inside or on the circle, p2 is used for direction and assumed to be outside.
+    # Calculates intersection of the ray p1->p2 with the circle.
+    # Uses normalized direction vector for better numerical stability.
+
+    x1, y1 = p1_screen
+    x2, y2 = p2_screen # p2 is used for direction; can be far outside
+    cx, cy = circle_center_x, circle_center_y
+    r = circle_radius_pixels
+
+    # Translate points so circle is at origin for easier math
+    x1_trans, y1_trans = x1 - cx, y1 - cy
+    
+    # Direction vector from p1 to p2
+    dx = x2 - x1
+    dy = y2 - y1
+
+    len_d = math.sqrt(dx*dx + dy*dy)
+    if len_d < 1e-9: # p1 and p2 are essentially the same point
+        # If p1 is on the circle, it's the "intersection"
+        if abs((x1_trans**2 + y1_trans**2) - r**2) < 1e-6:
+            return p1_screen
+        return None # Otherwise, no line segment to intersect from p1
+
+    udx, udy = dx/len_d, dy/len_d # Unit direction vector from p1 towards p2
+
+    # Line is P_trans = P1_trans + k * U_dir, where k is distance along unit vector
+    # Substitute into circle equation: (x1_trans + k*udx)^2 + (y1_trans + k*udy)^2 = r^2
+    # Expands to: k^2*(udx^2+udy^2) + k*(2*x1_trans*udx + 2*y1_trans*udy) + (x1_trans^2+y1_trans^2-r^2) = 0
+    # Since (udx^2+udy^2) = 1 (it's a unit vector):
+    # k^2 + k*(2 * (x1_trans*udx + y1_trans*udy)) + (x1_trans^2+y1_trans^2-r^2) = 0
+    
+    # Quadratic equation Ak^2 + Bk_coeff*k + Ck_coeff = 0 for k
+    A_k = 1.0
+    B_k_coeff = 2 * (x1_trans * udx + y1_trans * udy)
+    C_k_coeff = (x1_trans**2 + y1_trans**2) - r**2
+
+    discriminant_k = B_k_coeff**2 - 4*A_k*C_k_coeff
+
+    if discriminant_k < -1e-9: # Allow for small negative due to precision
+        return None # No real intersection (line misses the circle)
+    
+    # Clamp if slightly negative due to floating point math
+    if discriminant_k < 0: discriminant_k = 0 
+
+    sqrt_discriminant_k = math.sqrt(discriminant_k)
+    
+    # Two solutions for k (distance from p1_trans along unit vector)
+    k1 = (-B_k_coeff + sqrt_discriminant_k) / (2*A_k)
+    k2 = (-B_k_coeff - sqrt_discriminant_k) / (2*A_k)
+
+    # We want the smallest non-negative k.
+    # This represents the first intersection point *forward* from p1 along the ray towards p2.
+    # If p1 is inside the circle (C_k_coeff < 0), one k will be positive (exit) and one negative.
+    # If p1 is on the circle (C_k_coeff ~ 0), one k is ~0, other is positive/negative.
+    # If p1 is outside (C_k_coeff > 0, though this function assumes p1 is inside/on),
+    #    both k could be positive (entry and exit) or complex (miss).
+    
+    intersect_k = -1.0 # Initialize with an invalid value
+
+    if k1 >= -1e-9: # k1 is a potential forward intersection (allowing for precision around 0)
+        intersect_k = k1
+    
+    if k2 >= -1e-9: # k2 is also a potential forward intersection
+        if intersect_k == -1.0 or k2 < intersect_k: # If k1 was not valid or k2 is smaller
+            intersect_k = k2
+            
+    if intersect_k == -1.0: # No valid non-negative k found
+        return None
+
+    # The intersection point must be on the segment defined by p1 and extending towards p2,
+    # up to the conceptual location of p2.
+    # intersect_k is the distance from p1. If intersect_k > len_d, it means p2 was *inside*
+    # the circle, and the intersection is beyond p2 (on the ray).
+    # This function is for when p1 is inside and we are looking for the exit towards an outside p2.
+    # So, intersect_k should generally be <= len_d if p2 defines the actual segment end.
+    # However, p2_screen is often a "far point" for direction, so len_d can be huge.
+    # The crucial part is that intersect_k is the distance from p1 to the circle edge.
+
+    # Calculate the intersection point in original screen coordinates
+    final_intersect_x = x1 + intersect_k * udx
+    final_intersect_y = y1 + intersect_k * udy
+    
+    return (int(round(final_intersect_x)), int(round(final_intersect_y)))
+
 def draw_ship_track(surface, track_points_geo, ship_lat, ship_lon, ship_hdg_deg,
                     cc_x, cc_y, disp_radius_px, s_max_on_disp, current_disp_unit, track_color):
     # This is the new, optimized version of the function.
@@ -3854,9 +3935,20 @@ def draw_center_icon(surface, center_x, center_y, total_height, color):
 # --- Echosounder Simulation ---
 VELOCIDAD_SONIDO = 1500.0  # m/s in salt water
 
-# Furuno Palette (Matched to COLORES_PALETTE for consistency)
-# Converted to list of tuples for Pygame surface.set_at
-COLORES_ECO = [tuple(c) for c in COLORES_PALETTE]
+# Furuno Palette
+COLORES_ECO = [
+    (0, 0, 30),         # 0: Deep blue sea background
+    (0, 100, 255),      # 1: Blue (Noise)
+    (0, 200, 200),      # 2: Cyan
+    (0, 255, 0),        # 3: Green
+    (255, 255, 0),      # 4: Yellow
+    (255, 165, 0),      # 5: Orange
+    (255, 100, 0),      # 6: Strong Orange
+    (255, 0, 0),        # 7: Red (Bottom)
+    (150, 0, 0),        # 8: Dark Red
+    (100, 50, 0),       # 9: Brown
+    (255, 255, 255)     # 10: WHITE LINE
+]
 
 class Echosounder:
     def __init__(self, width, height, colors, config):
@@ -3913,22 +4005,21 @@ class Echosounder:
         factor_m_a_px = self.height / rango 
         y_fondo = int((profundidad - shift) * factor_m_a_px) 
  
-        # --- 1. DIBUJO DE CLUTTER/INTERFERENCIA --- 
+        # --- 1. DIBUJO DE CLUTTER/INTERFERENCIA (Mantenemos tu código igual) --- 
         if y_fondo > 0: 
             clutter_density = int(filtro_parasit / 10.0) 
             if clutter_density > 0: 
                 clutter_points = np.random.randint(0, self.height, size=clutter_density) 
                 for y_clutter in clutter_points: 
-                    self.surface.set_at((x, y_clutter), COLORES_ECO[2]) # Azul oscuro
+                    self.surface.set_at((x, y_clutter), COLORES_ECO[2])  
              
             if config.get('sonda_rechz_interf', 'ON') == 'OFF': 
                 if random.random() < 0.1: 
                     for y_interf in range(self.height): 
                         if random.random() < 0.1: 
-                            # Colores aleatorios de baja intensidad (Azules/Verdes)
-                            self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 6)]) 
+                            self.surface.set_at((x, y_interf), COLORES_ECO[random.randint(1, 4)]) 
  
-        # --- 2. DIBUJO DEL CARDUMEN --- 
+        # --- 2. DIBUJO DEL CARDUMEN (NUEVO CÓDIGO) --- 
         # Si tenemos datos y el barco está sobre el cardumen 
         if datos_cardumen: 
             dist_h = datos_cardumen.get("dist_horizontal_m", 10000) 
@@ -3956,19 +4047,17 @@ class Echosounder:
                             # Elegir color basado en intensidad y aleatoriedad 
                             rand_val = random.random() 
                              
-                            # Núcleo del cardumen (Indices 12-15: Rojo->Marrón) 
+                            # Núcleo del cardumen (Rojo/Naranja) 
                             if intensidad_horizontal > 0.5 and rand_val > 0.3: 
-                                col = COLORES_ECO[14] # Marrón Rojizo
+                                col = COLORES_ECO[7] # Rojo 
                             elif intensidad_horizontal > 0.3 and rand_val > 0.3: 
-                                col = COLORES_ECO[12] # Rojo
-                            elif rand_val > 0.5:
-                                col = COLORES_ECO[9] # Amarillo
+                                col = COLORES_ECO[5] # Naranja 
                             else: 
-                                col = COLORES_ECO[6] # Verde
+                                col = COLORES_ECO[3] # Verde/Amarillo 
                                  
                             self.surface.set_at((x, y_p), col) 
  
-        # --- 3. DIBUJO DEL FONDO MARINO --- 
+        # --- 3. DIBUJO DEL FONDO MARINO (Mantenemos tu código igual) --- 
         grosor = int(15 + ganancia) 
         anular_color_threshold = config.get('sonda_anular_color', 0) / 10.0 
          
@@ -3984,13 +4073,12 @@ class Echosounder:
                     continue 
  
                 displayed_intensity = raw_intensity ** gamma 
-                # Mapear 0.0-1.0 a indices 1-15
-                color_index = 1 + int(displayed_intensity * 14) 
-                color_index = max(1, min(15, color_index)) 
+                color_index = 1 + int(displayed_intensity * 8) 
+                color_index = max(1, min(9, color_index)) 
                  
                 self.surface.set_at((x, y_draw), COLORES_ECO[color_index]) 
  
-        # --- 4. MAIN BANG / QUILLA --- 
+        # --- 4. MAIN BANG / QUILLA (Mantenemos tu código modificado anteriormente) --- 
         val_menu = float(config.get('sonda_ajuste_calado', 0)) 
         calado = 20.0 - val_menu 
         if calado < 0: calado = 0 
@@ -4000,11 +4088,10 @@ class Echosounder:
             for y in range(0, min(y_quilla, self.height)): 
                 if random.random() < 0.9:  
                     dist_relativa = y / y_quilla  
-                    # Usar indices altos para colores fuertes
-                    if dist_relativa < 0.3: color = COLORES_ECO[15] # Núcleo duro
-                    elif dist_relativa < 0.6: color = COLORES_ECO[13] # Rojo Oscuro
-                    elif dist_relativa < 0.8: color = COLORES_ECO[11] # Naranja
-                    else: color = COLORES_ECO[8] # Amarillo Verdoso
+                    if dist_relativa < 0.3: color = COLORES_ECO[8] 
+                    elif dist_relativa < 0.6: color = COLORES_ECO[7] 
+                    elif dist_relativa < 0.8: color = COLORES_ECO[5] 
+                    else: color = COLORES_ECO[4] 
                     self.surface.set_at((x, y), color) 
             if int(x) % 4 == 0: 
                  if y_quilla < self.height: 
@@ -6049,6 +6136,7 @@ if serial_port_available and ser is not None:
 save_settings()
 # ---
 pygame.quit()
+
 
 
 
