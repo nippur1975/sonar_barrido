@@ -4754,8 +4754,58 @@ def draw_compass_rose(surface, center_x, center_y, radius, font, color, current_
             text_rect_compass.center = (label_x, label_y)
             surface.blit(text_surface_compass, text_rect_compass)
 
+def draw_diagnostic_screen(surface):
+    surface.fill((0, 0, 0))
+    # Intentar usar una fuente monoespaciada
+    font_diag = pygame.font.SysFont("monospace", 20, bold=True)
+    if not font_diag:
+        font_diag = pygame.font.Font(None, 24)
+
+    green = (0, 255, 0)
+
+    lines = [
+        ("CONTI TEST", (0.5, 0.05)), # Centrado arriba
+        ("", (0,0)),
+        ("MAIN-D 1050729-01.A6  0 00", (0.1, 0.15)),
+        ("      ROM  = OK", (0.1, 0.20)),
+        ("      RAM  = OK", (0.1, 0.25)),
+        ("      VRAM = OK", (0.1, 0.30)),
+        ("", (0,0)),
+        ("EEPROM(P.W) = OK", (0.1, 0.40)),
+        ("", (0,0)),
+        ("", (0,0)),
+        ("TRX   1050742-01.02  1050733-01.01   59 08", (0.1, 0.55)),
+        ("      ROM  = OK", (0.1, 0.60)),
+        ("      RAM  = OK", (0.1, 0.65)),
+        ("      DROM = OK", (0.1, 0.70)),
+        ("", (0,0)),
+        ("KEY-D 1050730-02.01  0", (0.1, 0.80)),
+        ("      ROM  = OK", (0.1, 0.85)),
+        ("      RAM  = OK", (0.1, 0.90)),
+        ("", (0,0)),
+        ("E -> EXIT", (0.5, 0.95)) # Centrado abajo
+    ]
+
+    w, h = surface.get_size()
+
+    for text, (rel_x, rel_y) in lines:
+        if not text: continue
+
+        surf = font_diag.render(text, True, green)
+        rect = surf.get_rect()
+
+        if rel_x == 0.5:
+            rect.centerx = int(w * rel_x)
+        else:
+            rect.left = int(w * rel_x)
+
+        rect.top = int(h * rel_y)
+        surface.blit(surf, rect)
+
 #Iteramos hasta que el usuario haga click sobre el botón de cerrar
 hecho = False
+test_mode_active = False
+test_mode_start_time = 0
 
 angulo = 0
 
@@ -4878,6 +4928,7 @@ while not hecho:
             ser = None
             serial_port_available = False
     
+
     # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
     # Primero, definir el ancho del panel de datos. Podría ser fijo o un porcentaje.
     # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
@@ -5362,7 +5413,17 @@ while not hecho:
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT:
             hecho = True
-        
+
+        # Manejo global de la tecla E para el modo Test
+        if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
+            if test_mode_active:
+                test_mode_active = False
+                print("INFO: Test mode desactivado por usuario.")
+            elif menu.options.get('test') in ['UNA VEZ', 'CONTINUO']:
+                test_mode_active = True
+                test_mode_start_time = pygame.time.get_ticks()
+                print(f"INFO: Test mode activado ({menu.options.get('test')}).")
+
         action = menu.handle_event(evento)
         if action == 'clear_markers':
             target_markers.clear()
@@ -5385,6 +5446,23 @@ while not hecho:
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 # Aquí iría la lógica de clic del ratón para la pantalla principal (ej. añadir marcadores)
                 pass
+
+    # --- Lógica de Pantalla de Test ---
+    if test_mode_active:
+        # Verificar temporizador si es 'UNA VEZ'
+        if menu.options.get('test') == 'UNA VEZ':
+             if pygame.time.get_ticks() - test_mode_start_time > 20000: # 20 segundos
+                  test_mode_active = False
+                  print("INFO: Test mode finalizado por tiempo.")
+
+        if test_mode_active: # Si sigue activo después de la verificación
+            draw_diagnostic_screen(pantalla)
+            pygame.display.flip()
+            # Guardar captura si es necesario para validación headless
+            # pygame.image.save(pantalla, "test_screen_screenshot.png")
+            reloj.tick(60)
+            continue # Saltar el resto del bucle de dibujado, pero NO el bucle de eventos (ya pasó)
+    # --- Fin Lógica de Pantalla de Test ---
 
 
     # Read from serial port if available
