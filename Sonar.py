@@ -1460,7 +1460,9 @@ class MenuSystem:
         # CJK Font support
         self.font_cjk = None
         try:
-            if os.path.exists("DroidSansFallback.ttf"):
+            if os.path.exists("NotoSansJP-Regular.otf"):
+                self.font_cjk = pygame.font.Font("NotoSansJP-Regular.otf", 20)
+            elif os.path.exists("DroidSansFallback.ttf"):
                 self.font_cjk = pygame.font.Font("DroidSansFallback.ttf", 18) # Slightly smaller for complex chars
             else:
                 # Try system font fallback if file not found
@@ -5632,8 +5634,14 @@ while not hecho:
     pygame.draw.rect(pantalla, current_colors["DATA_PANEL_BG"], unified_data_box_dims)
     pygame.draw.rect(pantalla, current_colors["DATA_PANEL_BORDER"], unified_data_box_dims, 2)
 
+    # Select font for labels in main view
+    current_lang = menu.options.get('idioma', 'ENGLISH')
+    font_labels = font
+    if current_lang in ['JAPANESE', 'KOREAN'] and menu.font_cjk:
+        font_labels = menu.font_cjk
+
  # Slot 1: VELOCIDAD
-    text_surface_longitud = font.render(menu.tr('LBL_SHIP_SPEED'), True, current_colors["PRIMARY_TEXT"]) # texto_longitud is "VELOC DEL BARCO"
+    text_surface_longitud = font_labels.render(menu.tr('LBL_SHIP_SPEED'), True, current_colors["PRIMARY_TEXT"]) # texto_longitud is "VELOC DEL BARCO"
     text_rect_longitud = text_surface_longitud.get_rect()
     text_rect_longitud.left = unified_data_box_dims[0] + 5
     text_rect_longitud.top = unified_data_box_dims[1] + 5
@@ -5655,7 +5663,7 @@ while not hecho:
     # Slot 2: RUMBO
     y_offset_rumbo = unified_data_box_dims[1] + 100 + 5 # Start of RUMBO's 100px section + 5px padding from VELOCIDAD section
 
-    text_surface_velocidad = font.render(menu.tr('LBL_SHIP_COURSE'), True, current_colors["PRIMARY_TEXT"]) # texto_velocidad is "RUMBO DEL BARCO"
+    text_surface_velocidad = font_labels.render(menu.tr('LBL_SHIP_COURSE'), True, current_colors["PRIMARY_TEXT"]) # texto_velocidad is "RUMBO DEL BARCO"
     text_rect_velocidad = text_surface_velocidad.get_rect()
     text_rect_velocidad.left = unified_data_box_dims[0] + 5
     text_rect_velocidad.top = y_offset_rumbo + 5 # 5px from top of its allocated section
@@ -5689,7 +5697,7 @@ while not hecho:
 
     # --- Slot 3: COORDENADAS/LAT/LON ---
     # Create all surfaces and get their initial rects first
-    text_surface_latitud = font.render(menu.tr('LBL_LAT_LON'), True, current_colors["PRIMARY_TEXT"])
+    text_surface_latitud = font_labels.render(menu.tr('LBL_LAT_LON'), True, current_colors["PRIMARY_TEXT"])
     text_rect_latitud = text_surface_latitud.get_rect()
 
     text_surface_lat_data = font_size_54.render(latitude_str, True, current_colors["PRIMARY_TEXT"]) # Changed to font_size_54
