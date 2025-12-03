@@ -2120,6 +2120,13 @@ DEFAULT_VERDE_CLARO = (144, 238, 144) # Light Green for some square selectors
 DEFAULT_GRIS_MEDIO = (128, 128, 128)
 DEFAULT_GRIS_MUY_CLARO = (220, 220, 220)
 
+# Colores y Variables para Test Mode
+GREEN_PHOSPHOR = (50, 255, 50)
+BLACK = (0, 0, 0)
+test_active = False
+test_mode = "single" # "single" o "continuous"
+test_start_time = 0
+
 # --- Definiciones de Esquemas de Color ---
 color_schemes = {
     1: { # Verde Militar
@@ -2602,6 +2609,9 @@ font_data_medium = pygame.font.Font(None, 36)
 font_size_50 = pygame.font.Font(None, 50)
 font_size_54 = pygame.font.Font(None, 54)
 font_menu_item = pygame.font.Font(None, 20) # New font for menu items
+font_test = pygame.font.SysFont("consolas", 24, bold=True)
+if not font_test:
+    font_test = pygame.font.SysFont("monospace", 24, bold=True)
 
 # --- OLD UI ELEMENT DEFINITIONS REMOVED ---
 # This section previously contained variables for the old button-based
@@ -4754,58 +4764,58 @@ def draw_compass_rose(surface, center_x, center_y, radius, font, color, current_
             text_rect_compass.center = (label_x, label_y)
             surface.blit(text_surface_compass, text_rect_compass)
 
-def draw_diagnostic_screen(surface):
-    surface.fill((0, 0, 0))
-    # Intentar usar una fuente monoespaciada
-    font_diag = pygame.font.SysFont("monospace", 20, bold=True)
-    if not font_diag:
-        font_diag = pygame.font.Font(None, 24)
+def draw_self_test(screen, font_mono, elapsed_time):
+    screen.fill(BLACK)
 
-    green = (0, 255, 0)
+    # Configuración de espaciado
+    line_height = 30
+    start_y = 50
+    col_1_x = 50
+    col_2_x = 100  # Indentación para ROM/RAM
+
+    # Lista de textos a mostrar con su tiempo de aparición (simula el booteo)
+    # Formato: (Tiempo_en_segundos, Texto, (X, Y))
+    # Usar coordenadas relativas al centro para el título
 
     lines = [
-        ("CONTI TEST", (0.5, 0.05)), # Centrado arriba
-        ("", (0,0)),
-        ("MAIN-D 1050729-01.A6  0 00", (0.1, 0.15)),
-        ("      ROM  = OK", (0.1, 0.20)),
-        ("      RAM  = OK", (0.1, 0.25)),
-        ("      VRAM = OK", (0.1, 0.30)),
-        ("", (0,0)),
-        ("EEPROM(P.W) = OK", (0.1, 0.40)),
-        ("", (0,0)),
-        ("", (0,0)),
-        ("TRX   1050742-01.02  1050733-01.01   59 08", (0.1, 0.55)),
-        ("      ROM  = OK", (0.1, 0.60)),
-        ("      RAM  = OK", (0.1, 0.65)),
-        ("      DROM = OK", (0.1, 0.70)),
-        ("", (0,0)),
-        ("KEY-D 1050730-02.01  0", (0.1, 0.80)),
-        ("      ROM  = OK", (0.1, 0.85)),
-        ("      RAM  = OK", (0.1, 0.90)),
-        ("", (0,0)),
-        ("E -> EXIT", (0.5, 0.95)) # Centrado abajo
+        (0.0, "CONTI TEST", (screen.get_width() // 2 - 60, 20)), # Centrado
+
+        # MAIN-D SECCION
+        (0.5, "MAIN-D 1050729-01.A6  0 00", (col_1_x, start_y + line_height * 2)),
+        (0.8, "ROM   =  OK", (col_2_x, start_y + line_height * 3)),
+        (1.0, "RAM   =  OK", (col_2_x, start_y + line_height * 4)),
+        (1.2, "VRAM  =  OK", (col_2_x, start_y + line_height * 5)),
+
+        # EEPROM SECCION
+        (1.8, "EEPROM(P.W) =  OK", (col_1_x, start_y + line_height * 7)),
+
+        # TRX SECCION
+        (2.5, "TRX    1050742-01.02  1050733-01.01  59 08", (col_1_x, start_y + line_height * 10)),
+        (2.8, "ROM   =  OK", (col_2_x, start_y + line_height * 11)),
+        (3.0, "RAM   =  OK", (col_2_x, start_y + line_height * 12)),
+        (3.2, "DROM  =  OK", (col_2_x, start_y + line_height * 13)),
+
+        # KEY-D SECCION
+        (4.0, "KEY-D  1050730-02.01  0", (col_1_x, start_y + line_height * 16)),
+        (4.3, "ROM   =  OK", (col_2_x, start_y + line_height * 17)),
+        (4.5, "RAM   =  OK", (col_2_x, start_y + line_height * 18)),
     ]
 
-    w, h = surface.get_size()
+    # Renderizar solo las líneas que ya "han ocurrido" según el tiempo
+    for item in lines:
+        trigger_time, text, pos = item
+        if elapsed_time >= trigger_time:
+            # Efecto de parpadeo ligero para realismo CRT (opcional)
+            text_surface = font_mono.render(text, True, GREEN_PHOSPHOR)
+            screen.blit(text_surface, pos)
 
-    for text, (rel_x, rel_y) in lines:
-        if not text: continue
-
-        surf = font_diag.render(text, True, green)
-        rect = surf.get_rect()
-
-        if rel_x == 0.5:
-            rect.centerx = int(w * rel_x)
-        else:
-            rect.left = int(w * rel_x)
-
-        rect.top = int(h * rel_y)
-        surface.blit(surf, rect)
+    # Dibujar cursor parpadeante al final si todo terminó
+    if elapsed_time > 5.0:
+        if int(elapsed_time * 2) % 2 == 0: # Parpadeo cada 0.5s
+            pygame.draw.rect(screen, GREEN_PHOSPHOR, (col_2_x, start_y + line_height * 20, 15, 20))
 
 #Iteramos hasta que el usuario haga click sobre el botón de cerrar
 hecho = False
-test_mode_active = False
-test_mode_start_time = 0
 
 angulo = 0
 
@@ -5416,13 +5426,21 @@ while not hecho:
 
         # Manejo global de la tecla E para el modo Test
         if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
-            if test_mode_active:
-                test_mode_active = False
+            if test_active:
+                test_active = False
                 print("INFO: Test mode desactivado por usuario.")
-            elif menu.options.get('test') in ['UNA VEZ', 'CONTINUO']:
-                test_mode_active = True
-                test_mode_start_time = pygame.time.get_ticks()
-                print(f"INFO: Test mode activado ({menu.options.get('test')}).")
+            else:
+                test_opt = menu.options.get('test')
+                if test_opt == 'UNA VEZ':
+                    test_active = True
+                    test_mode = "single"
+                    test_start_time = time.time()
+                    print(f"INFO: Test mode activado ({test_opt}).")
+                elif test_opt == 'CONTINUO':
+                    test_active = True
+                    test_mode = "continuous"
+                    test_start_time = time.time()
+                    print(f"INFO: Test mode activado ({test_opt}).")
 
         action = menu.handle_event(evento)
         if action == 'clear_markers':
@@ -5448,20 +5466,27 @@ while not hecho:
                 pass
 
     # --- Lógica de Pantalla de Test ---
-    if test_mode_active:
-        # Verificar temporizador si es 'UNA VEZ'
-        if menu.options.get('test') == 'UNA VEZ':
-             if pygame.time.get_ticks() - test_mode_start_time > 20000: # 20 segundos
-                  test_mode_active = False
-                  print("INFO: Test mode finalizado por tiempo.")
+    if test_active:
+        current_time = time.time()
+        elapsed = current_time - test_start_time
 
-        if test_mode_active: # Si sigue activo después de la verificación
-            draw_diagnostic_screen(pantalla)
-            pygame.display.flip()
-            # Guardar captura si es necesario para validación headless
-            # pygame.image.save(pantalla, "test_screen_screenshot.png")
-            reloj.tick(60)
-            continue # Saltar el resto del bucle de dibujado, pero NO el bucle de eventos (ya pasó)
+        # Usar una fuente monoespaciada para que se parezca al original
+        # La fuente ya se ha inicializado globalmente
+
+        draw_self_test(pantalla, font_test, elapsed)
+
+        # Lógica de salida del test
+        if test_mode == "single":
+            # Salir después de 20 segundos
+            if elapsed > 20.0:
+                test_active = False
+                print("INFO: Test mode finalizado por tiempo.")
+
+        pygame.display.flip()
+        # Guardar captura si es necesario para validación headless
+        # pygame.image.save(pantalla, "test_screen_screenshot.png")
+        reloj.tick(60)
+        continue # Saltar el resto del bucle de dibujado, pero NO el bucle de eventos (ya pasó)
     # --- Fin Lógica de Pantalla de Test ---
 
 
