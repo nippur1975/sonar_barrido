@@ -5470,6 +5470,10 @@ while not hecho:
         current_time = time.time()
         elapsed = current_time - test_start_time
 
+        # Desactivar audio durante el test
+        if sonar_ping_sound:
+            sonar_ping_sound.stop()
+
         # Usar una fuente monoespaciada para que se parezca al original
         # La fuente ya se ha inicializado globalmente
 
