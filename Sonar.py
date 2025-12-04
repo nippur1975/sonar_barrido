@@ -2120,6 +2120,44 @@ DEFAULT_VERDE_CLARO = (144, 238, 144) # Light Green for some square selectors
 DEFAULT_GRIS_MEDIO = (128, 128, 128)
 DEFAULT_GRIS_MUY_CLARO = (220, 220, 220)
 
+# Colores y Variables para Test Mode
+GREEN_PHOSPHOR = (50, 255, 50)
+BLACK = (0, 0, 0)
+test_active = False
+test_mode = "single" # "single" o "continuous"
+test_start_time = 0
+
+# Variables para el Panel Test
+panel_test_active = False
+POS_GAIN  = (600, 200)
+POS_RANGE = (700, 200)
+POS_TILT  = (650, 250)
+POS_F1    = (150, 350)
+POS_F2    = (250, 350)
+POS_EVENT = (150, 450) # Tecla E
+POS_FISH  = (250, 450) # Tecla F
+POS_RB    = (350, 450) # Tecla R
+POS_DEL   = (450, 450) # Tecla D
+POS_MENU  = (550, 450) # Tecla M
+TRACKBALL_RECT = pygame.Rect(620, 380, 120, 100)
+
+# --- COLORES PUROS PARA EL TEST ---
+WHITE_FULL = (255, 255, 255)
+RED_FULL   = (255, 0, 0)
+GREEN_FULL = (0, 255, 0)
+BLUE_FULL  = (0, 0, 255)
+
+# Variables de Estado del Test de Color
+color_test_active = False
+test_colors = [WHITE_FULL, RED_FULL, GREEN_FULL, BLUE_FULL]
+current_color_index = 0
+
+# Variables para el Pattern Test
+pattern_test_active = False
+GRID_COLOR = (100, 200, 255) # Un azul cian claro técnico (Estilo monitor industrial)
+GRID_COLS = 10  # Divisiones verticales
+GRID_ROWS = 8   # Divisiones horizontales
+
 # --- Definiciones de Esquemas de Color ---
 color_schemes = {
     1: { # Verde Militar
@@ -2602,6 +2640,13 @@ font_data_medium = pygame.font.Font(None, 36)
 font_size_50 = pygame.font.Font(None, 50)
 font_size_54 = pygame.font.Font(None, 54)
 font_menu_item = pygame.font.Font(None, 20) # New font for menu items
+# Intentar cargar una fuente monoespaciada del sistema que se parezca a la original
+font_test_path = pygame.font.match_font('consolas')
+if font_test_path:
+    font_test = pygame.font.Font(font_test_path, 24)
+    font_test.set_bold(True)
+else:
+    font_test = pygame.font.SysFont("monospace", 24, bold=True)
 
 # --- OLD UI ELEMENT DEFINITIONS REMOVED ---
 # This section previously contained variables for the old button-based
@@ -4754,6 +4799,173 @@ def draw_compass_rose(surface, center_x, center_y, radius, font, color, current_
             text_rect_compass.center = (label_x, label_y)
             surface.blit(text_surface_compass, text_rect_compass)
 
+def draw_self_test(screen, font_mono, elapsed_time):
+    screen.fill(BLACK)
+
+    # Configuración de espaciado
+    line_height = 30
+    start_y = 50
+    col_1_x = 50
+    col_2_x = 100  # Indentación para ROM/RAM
+
+    # Lista de textos a mostrar con su tiempo de aparición (simula el booteo)
+    # Formato: (Tiempo_en_segundos, Texto, (X, Y))
+    # Usar coordenadas relativas al centro para el título
+
+    lines = [
+        (0.0, "CONTI TEST", (screen.get_width() // 2 - 60, 20)), # Centrado
+
+        # MAIN-D SECCION
+        (0.5, "MAIN-D 1050729-01.A6  0 00", (col_1_x, start_y + line_height * 2)),
+        (0.8, "ROM   =  OK", (col_2_x, start_y + line_height * 3)),
+        (1.0, "RAM   =  OK", (col_2_x, start_y + line_height * 4)),
+        (1.2, "VRAM  =  OK", (col_2_x, start_y + line_height * 5)),
+
+        # EEPROM SECCION
+        (1.8, "EEPROM(P.W) =  OK", (col_1_x, start_y + line_height * 7)),
+
+        # TRX SECCION
+        (2.5, "TRX    1050742-01.02  1050733-01.01  59 08", (col_1_x, start_y + line_height * 10)),
+        (2.8, "ROM   =  OK", (col_2_x, start_y + line_height * 11)),
+        (3.0, "RAM   =  OK", (col_2_x, start_y + line_height * 12)),
+        (3.2, "DROM  =  OK", (col_2_x, start_y + line_height * 13)),
+
+        # KEY-D SECCION
+        (4.0, "KEY-D  1050730-02.01  0", (col_1_x, start_y + line_height * 16)),
+        (4.3, "ROM   =  OK", (col_2_x, start_y + line_height * 17)),
+        (4.5, "RAM   =  OK", (col_2_x, start_y + line_height * 18)),
+    ]
+
+    # Renderizar solo las líneas que ya "han ocurrido" según el tiempo
+    for item in lines:
+        trigger_time, text, pos = item
+        if elapsed_time >= trigger_time:
+            # Efecto de parpadeo ligero para realismo CRT (opcional)
+            text_surface = font_mono.render(text, True, GREEN_PHOSPHOR)
+            screen.blit(text_surface, pos)
+
+    # Dibujar cursor parpadeante al final si todo terminó
+    if elapsed_time > 5.0:
+        if int(elapsed_time * 2) % 2 == 0: # Parpadeo cada 0.5s
+            pygame.draw.rect(screen, GREEN_PHOSPHOR, (col_2_x, start_y + line_height * 20, 15, 20))
+
+def draw_panel_test(screen, font_mono):
+    screen.fill(BLACK)
+
+    # 1. Título y Marco
+    title = font_mono.render("PANEL TEST", True, GREEN_PHOSPHOR)
+    screen.blit(title, (screen.get_width()//2 - title.get_width()//2, 50))
+
+    # Marco principal (rectángulo grande)
+    pygame.draw.rect(screen, GREEN_PHOSPHOR, (100, 150, screen.get_width()-200, 400), 2)
+
+    # Obtener estado de todas las teclas
+    keys = pygame.key.get_pressed()
+
+    # --- LOGICA DE BOTONES SIMPLES (0 o 1) ---
+    # Helper para dibujar el estado
+    def draw_state(key_pressed, pos):
+        val = "1" if key_pressed else "0"
+        txt = font_mono.render(val, True, GREEN_PHOSPHOR)
+        screen.blit(txt, pos)
+
+    draw_state(keys[pygame.K_e], POS_EVENT)   # Event
+    draw_state(keys[pygame.K_f], POS_FISH)    # Fish
+    draw_state(keys[pygame.K_r], POS_RB)       # R/B (Asumiendo tecla R)
+    draw_state(keys[pygame.K_d], POS_DEL)     # Delete Mark
+
+    # Otros botones decorativos para rellenar la pantalla como en la foto
+    draw_state(False, POS_F1)
+    draw_state(False, POS_F2)
+
+    # --- LOGICA DE PERILLAS (GAIN, RANGE) ---
+    # Gain (o/l): Antihorario(o)=-1, Horario(l)=1
+    if keys[pygame.K_o]: gain_val = "-1"
+    elif keys[pygame.K_l]: gain_val = "1"
+    else: gain_val = "0"
+    screen.blit(font_mono.render(gain_val, True, GREEN_PHOSPHOR), POS_GAIN)
+
+    # Range (y/h): Antihorario(y)=-1, Horario(h)=1
+    if keys[pygame.K_y]: range_val = "-1"
+    elif keys[pygame.K_h]: range_val = "1"
+    else: range_val = "0"
+    screen.blit(font_mono.render(range_val, True, GREEN_PHOSPHOR), POS_RANGE)
+
+    # --- LOGICA DE TILT ---
+    # Mover control TILT: Aumenta(1), Disminuye(2), Nada(0)
+    # Usando j para aumentar angulo (1) y u para disminuir (2)
+    if keys[pygame.K_j]: tilt_val = "1"
+    elif keys[pygame.K_u]: tilt_val = "2"
+    else: tilt_val = "0"
+    screen.blit(font_mono.render(tilt_val, True, GREEN_PHOSPHOR), POS_TILT)
+
+    # --- LOGICA DEL TRACKBALL (MOUSE) ---
+    # Dibujar caja
+    pygame.draw.rect(screen, GREEN_PHOSPHOR, TRACKBALL_RECT, 1)
+
+    # Obtener movimiento relativo del mouse (delta x, delta y)
+    dx, dy = pygame.mouse.get_rel()
+
+    # Texto X=... Y=...
+    txt_x = font_mono.render(f"X={dx}", True, GREEN_PHOSPHOR)
+    txt_y = font_mono.render(f"Y={dy}", True, GREEN_PHOSPHOR)
+
+    screen.blit(txt_x, (TRACKBALL_RECT.x + 10, TRACKBALL_RECT.y + 20))
+    screen.blit(txt_y, (TRACKBALL_RECT.x + 10, TRACKBALL_RECT.y + 60))
+
+    # Texto inferior
+    footer = font_mono.render("PRESS [MENU] KEY TO EXIT", True, GREEN_PHOSPHOR)
+    screen.blit(footer, (screen.get_width()//2 - footer.get_width()//2, 600))
+
+def draw_pattern_test(screen, font_mono):
+    screen.fill(BLACK)
+    w, h = screen.get_size()
+    center_x, center_y = w // 2, h // 2
+
+    # --- 1. DIBUJAR RETÍCULA (GRID) ---
+    # Líneas Verticales
+    for i in range(1, GRID_COLS):
+        x = i * (w / GRID_COLS)
+        pygame.draw.line(screen, GRID_COLOR, (x, 0), (x, h), 1)
+
+    # Líneas Horizontales
+    for i in range(1, GRID_ROWS):
+        y = i * (h / GRID_ROWS)
+        pygame.draw.line(screen, GRID_COLOR, (0, y), (w, y), 1)
+
+    # --- 2. DIBUJAR CÍRCULOS CONCÉNTRICOS ---
+    # Dibujamos 3 círculos como en el diagrama (Radio pequeño, medio, grande)
+    max_radius = min(w, h) // 2
+    radii = [max_radius * 0.3, max_radius * 0.6, max_radius * 0.9]
+
+    for r in radii:
+        pygame.draw.circle(screen, GRID_COLOR, (center_x, center_y), int(r), 1)
+
+    # --- 3. DIBUJAR TEXTO (Con fondo negro para "borrar" las líneas detrás) ---
+
+    # Función auxiliar para dibujar texto con fondo "recortado"
+    def draw_text_boxed(text, y_pos):
+        surf = font_mono.render(text, True, BLACK) # Renderizado dummy para medir
+        rect = surf.get_rect(center=(center_x, y_pos))
+        # Expandir un poco el rectángulo de fondo
+        bg_rect = rect.inflate(20, 10)
+
+        # 1. Dibujar caja negra (borra la retícula)
+        pygame.draw.rect(screen, WHITE_FULL, bg_rect) # Caja Blanca (según diagrama)
+        # 2. Dibujar borde de caja (opcional, si quieres estilo wireframe)
+        pygame.draw.rect(screen, BLACK, bg_rect, 1)
+
+        # 3. Dibujar Texto (Negro sobre blanco, o Invertido según prefieras)
+        # El diagrama muestra fondo blanco con letras negras, hagámoslo así para contraste:
+        final_text = font_mono.render(text, True, BLACK)
+        screen.blit(final_text, rect)
+
+    # Título Superior
+    draw_text_boxed("PATTERN TEST", h * 0.2)
+
+    # Instrucción Inferior
+    draw_text_boxed("PRESS [MENU] KEY TO EXIT", h * 0.8)
+
 #Iteramos hasta que el usuario haga click sobre el botón de cerrar
 hecho = False
 
@@ -4878,6 +5090,7 @@ while not hecho:
             ser = None
             serial_port_available = False
     
+
     # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
     # Primero, definir el ancho del panel de datos. Podría ser fijo o un porcentaje.
     # --- Recalcular dimensiones de UI basadas en el tamaño actual de la ventana (`dimensiones`) ---
@@ -5362,7 +5575,63 @@ while not hecho:
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT:
             hecho = True
+
+        # Manejo global de teclas para el modo Test
+        # Salida con tecla M si el test está activo (Cualquier modo)
+        if test_active:
+             if evento.type == pygame.KEYDOWN and evento.key == pygame.K_m:
+                test_active = False
+                print("INFO: Test mode desactivado por usuario.")
+             continue # Evita que se propague el evento al menú (toggle)
         
+        if panel_test_active:
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_m:
+                panel_test_active = False
+                print("INFO: Panel Test desactivado por usuario.")
+            continue # Evita propagar eventos (teclas de prueba F, R, etc.) al menú
+
+        if color_test_active:
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_e:
+                    current_color_index = (current_color_index + 1) % len(test_colors)
+                elif evento.key == pygame.K_m:
+                    color_test_active = False
+                    print("INFO: Color Test desactivado por usuario.")
+            continue
+
+        if pattern_test_active:
+            if evento.type == pygame.KEYDOWN and evento.key == pygame.K_m:
+                pattern_test_active = False
+                print("INFO: Pattern Test desactivado por usuario.")
+            continue
+
+        # Entrada con tecla E (solo si no está activo ningún test)
+        if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
+            if not test_active and not panel_test_active and not color_test_active and not pattern_test_active:
+                test_opt = menu.options.get('test')
+                if test_opt == 'UNA VEZ':
+                    test_active = True
+                    test_mode = "single"
+                    test_start_time = time.time()
+                    print(f"INFO: Test mode activado ({test_opt}).")
+                elif test_opt == 'CONTINUO':
+                    test_active = True
+                    test_mode = "continuous"
+                    test_start_time = time.time()
+                    print(f"INFO: Test mode activado ({test_opt}).")
+                elif test_opt == 'PANEL':
+                    panel_test_active = True
+                    # Limpiar movimiento acumulado del mouse
+                    pygame.mouse.get_rel()
+                    print(f"INFO: Panel Test activado.")
+                elif test_opt == 'COLOR':
+                    color_test_active = True
+                    current_color_index = 0
+                    print(f"INFO: Color Test activado.")
+                elif test_opt == 'PATTERN':
+                    pattern_test_active = True
+                    print(f"INFO: Pattern Test activado.")
+
         action = menu.handle_event(evento)
         if action == 'clear_markers':
             target_markers.clear()
@@ -5385,6 +5654,67 @@ while not hecho:
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 # Aquí iría la lógica de clic del ratón para la pantalla principal (ej. añadir marcadores)
                 pass
+
+    # --- Lógica de Pantalla de Test ---
+    if pattern_test_active:
+        # Desactivar audio durante el test
+        if sonar_ping_sound:
+            sonar_ping_sound.stop()
+
+        draw_pattern_test(pantalla, font_test)
+
+        pygame.display.flip()
+        reloj.tick(60)
+        continue
+
+    if color_test_active:
+        # Desactivar audio durante el test
+        if sonar_ping_sound:
+            sonar_ping_sound.stop()
+
+        pantalla.fill(test_colors[current_color_index])
+
+        pygame.display.flip()
+        reloj.tick(60)
+        continue
+
+    if panel_test_active:
+        # Desactivar audio durante el test
+        if sonar_ping_sound:
+            sonar_ping_sound.stop()
+
+        draw_panel_test(pantalla, font_test)
+
+        pygame.display.flip()
+        reloj.tick(60)
+        continue
+
+    if test_active:
+        current_time = time.time()
+        elapsed = current_time - test_start_time
+
+        # Desactivar audio durante el test
+        if sonar_ping_sound:
+            sonar_ping_sound.stop()
+
+        # Usar una fuente monoespaciada para que se parezca al original
+        # La fuente ya se ha inicializado globalmente
+
+        draw_self_test(pantalla, font_test, elapsed)
+
+        # Lógica de salida del test
+        if test_mode == "single":
+            # Salir después de 20 segundos
+            if elapsed > 20.0:
+                test_active = False
+                print("INFO: Test mode finalizado por tiempo.")
+
+        pygame.display.flip()
+        # Guardar captura si es necesario para validación headless
+        # pygame.image.save(pantalla, "test_screen_screenshot.png")
+        reloj.tick(60)
+        continue # Saltar el resto del bucle de dibujado, pero NO el bucle de eventos (ya pasó)
+    # --- Fin Lógica de Pantalla de Test ---
 
 
     # Read from serial port if available
