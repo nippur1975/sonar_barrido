@@ -5424,12 +5424,17 @@ while not hecho:
         if evento.type == pygame.QUIT:
             hecho = True
 
-        # Manejo global de la tecla E para el modo Test
-        if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
-            if test_active:
+        # Manejo global de teclas para el modo Test
+        # Salida con tecla M si el test está activo
+        if test_active:
+             if evento.type == pygame.KEYDOWN and evento.key == pygame.K_m:
                 test_active = False
                 print("INFO: Test mode desactivado por usuario.")
-            else:
+                continue # Evita que se propague el evento al menú (toggle)
+
+        # Entrada con tecla E (solo si no está activo)
+        if evento.type == pygame.KEYDOWN and evento.key == pygame.K_e:
+            if not test_active:
                 test_opt = menu.options.get('test')
                 if test_opt == 'UNA VEZ':
                     test_active = True
